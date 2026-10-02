@@ -23,54 +23,6 @@ const pool = new Pool({
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
 const APPROVAL_BASE_URL = process.env.APPROVAL_BASE_URL || 'http://localhost:3000';
 
-// Slack Block Kit: approval card with Approve/Reject buttons
-export function buildApprovalBlocks(approval: any, task: any, agent: any): any[] {
-  return [
-    {
-      type: 'header',
-      text: {
-        type: 'plain_text',
-        text: approval.amount_usd
-          ? `🔴 Approval needed: $${approval.amount_usd}`
-          : `🟡 Approval needed: ${approval.type}`,
-      },
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*Task:* ${task.title}\n*Agent:* ${agent.name} (${agent.type})\n*Requested:* <!date^${Math.floor(new Date(approval.requested_at).getTime() / 1000)}^{date_shorty} {time}|${approval.requested_at}>`,
-      },
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*What the agent wants to do:*\n\`\`\`${JSON.stringify(approval.context, null, 2)}\`\`\``,
-      },
-    },
-    {
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          style: 'primary',
-          text: { type: 'plain_text', text: '✅ Approve' },
-          action_id: 'approval_approve',
-          value: JSON.stringify({ approval_id: approval.id, decision: 'approved' }),
-        },
-        {
-          type: 'button',
-          style: 'danger',
-          text: { type: 'plain_text', text: '❌ Reject' },
-          action_id: 'approval_reject',
-          value: JSON.stringify({ approval_id: approval.id, decision: 'rejected' }),
-        },
-      ],
-    },
-  ];
-}
-
 // Post approval card to Slack
 export async function postApprovalToSlack(approvalId: string): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -163,20 +115,5 @@ export async function handleSlackAction(payload: SlackActionPayload): Promise<{ 
   }
 }
 
-// Update the original Slack message after decision (replace buttons with result)
-export function buildDecisionBlocks(approvalId: string, decision: string, decidedBy: string, originalBlocks: any[]): any[] {
-  const resultBlocks: any[] = [];
-  for (const block of originalBlocks) {
-    if (block.type !== 'actions') {
-      resultBlocks.push(block);
-    }
-  }
-  resultBlocks.push({
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: `*Result:* ${decision === 'approved' ? '✅ Approved' : '❌ Rejected'} by ${decidedBy}`,
-    },
-  });
-  return resultBlocks;
-}
+import { buildApprovalBlocks, buildDecisionBlocks } from './alert-blocks';
+export { buildApprovalBlocks, buildDecisionBlocks };

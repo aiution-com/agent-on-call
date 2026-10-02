@@ -34,6 +34,33 @@ try{
    await pool.query('DELETE FROM workspaces WHERE id=$1',[throwaway]);
    assert.equal((await pool.query('SELECT 1 FROM alert_channels WHERE org_id=$1',[throwaway])).rowCount,0);
   });
+  await t.test('block builders are pure and the alert path does not load a database pool',async()=>{
+   const {buildApprovalBlocks,buildDecisionBlocks,buildIncidentBlocks,buildHaltedBlocks,buildTestBlocks}=require('../dist/alert-blocks.js');
+   const approval={id:'11111111-1111-1111-1111-111111111111',type:'review',amount_usd:null,context:{action:'Check result'},requested_at:'2026-10-03T10:00:00.000Z'};
+   const task={title:'Review the latest pull request'};
+   const agent={name:'Connected worker',type:'test'};
+   const withActions=buildApprovalBlocks(approval,task,agent);
+   assert.equal(withActions.at(-1).type,'actions');
+   assert.equal(withActions.at(-1).elements.length,2);
+   const withoutActions=buildApprovalBlocks(approval,task,agent,{actions:false});
+   assert.equal(withoutActions.some(b=>b.type==='actions'),false);
+   assert.equal(withoutActions.at(-1).type,'context');
+   assert.match(JSON.stringify(withoutActions),/Review the latest pull request/);
+   assert.match(JSON.stringify(withoutActions),/11111111-1111-1111-1111-111111111111/);
+   assert.match(JSON.stringify(withoutActions),/in your AgentOnCall dashboard/);
+   const decided=buildDecisionBlocks(approval.id,'approved','Alice',withActions);
+   assert.equal(decided.some(b=>b.type==='actions'),false);
+   assert.match(JSON.stringify(decided),/Approved by Alice/);
+   assert.match(JSON.stringify(buildIncidentBlocks({id:'x',title:'Budget limit reached',description:'Spend reached the limit.',severity:'high'},{name:'My workspace'})),/\*Budget limit reached\*/);
+   assert.match(JSON.stringify(buildHaltedBlocks({stopped_by:'Alice',halted_tasks:2,halted_agents:1},{name:'My workspace'})),/2 task\(s\) and 1 agent\(s\)/);
+   assert.match(JSON.stringify(buildTestBlocks({name:'My workspace'})),/Test alert/);
+  });
+  await t.test('importing the block builders loads no dependencies',async()=>{
+   const {execFileSync}=await import('node:child_process');
+   const target=JSON.stringify(require.resolve('../dist/alert-blocks.js'));
+   const probe=execFileSync(process.execPath,['-e',`require(${target});const external=Object.keys(require.cache).filter(k=>k.includes('node_modules'));console.log(JSON.stringify(external));`],{encoding:'utf8'});
+   assert.deepEqual(JSON.parse(probe),[]);
+  });
  });
 }finally{
  for(const org of created){await pool.query('DELETE FROM approval_requests WHERE task_id IN(SELECT id FROM tasks WHERE org_id=$1)',[org]);await pool.query('DELETE FROM incidents WHERE org_id=$1',[org]);await pool.query('DELETE FROM tasks WHERE org_id=$1',[org]);await pool.query('DELETE FROM agents WHERE org_id=$1',[org]);await pool.query('DELETE FROM policies WHERE org_id=$1',[org]);await pool.query('DELETE FROM workspaces WHERE id=$1',[org]);}
