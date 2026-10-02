@@ -196,7 +196,7 @@ The second test spawns a fresh Node process and asserts that requiring the build
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm run build && node --test --test-name-pattern="block builders" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL — `Cannot find module '../dist/alert-blocks.js'`.
 
 - [ ] **Step 3: Create the module**
@@ -426,7 +426,7 @@ The `localhost` case exercises the DNS branch, which resolves from the host file
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm run build && node --test --test-name-pattern="alert URLs are validated" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL — `Cannot find module '../dist/alert-url.js'`.
 
 - [ ] **Step 3: Write the module**
@@ -502,7 +502,7 @@ export async function assertDeliverableAddress(host: string): Promise<void> {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npm run build && node --test --test-name-pattern="alert URLs are validated" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -604,7 +604,7 @@ Then add this inside the `try`:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm run build && node --test --test-name-pattern="channels are stored|blank secret" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL — `Cannot find module '../dist/alerts.js'`.
 
 - [ ] **Step 3: Write the channel half of the module**
@@ -691,7 +691,7 @@ export async function removeChannel(orgId: string, kind: unknown): Promise<void>
 
 - [ ] **Step 4: Run the channel tests**
 
-Run: `npm run build && node --test --test-name-pattern="channels are stored|blank secret" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: both PASS.
 
 - [ ] **Step 5: Write the failing delivery tests**
@@ -772,7 +772,7 @@ The last two lines of the second-to-last block matter: `setAlertTransport` is re
 
 - [ ] **Step 6: Run the delivery tests to verify they fail**
 
-Run: `npm run build && node --test --test-name-pattern="deliveries are signed|slack deliveries carry|no channel sends nothing" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL — `notify is not a function`.
 
 - [ ] **Step 7: Write the delivery half of the module**
@@ -1001,7 +1001,7 @@ Add inside the `try` in `tests/alerts.mjs`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm run build && node --test --test-name-pattern="alerts API is operator-only" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL — the first `GET /api/v1/alerts` returns 404 from the workspace API's fallback handler.
 
 - [ ] **Step 3: Add the routes**
@@ -1024,7 +1024,7 @@ workspaceApi.post('/alerts',requireSession,async(req,res)=>res.json(await sendTe
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npm run build && node --test --test-name-pattern="alerts API is operator-only" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: PASS.
 
 - [ ] **Step 5: Confirm the whole suite is still green**
@@ -1119,7 +1119,7 @@ Note the ordering claim: the two alerts from `emergency/stop` are started concur
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm run build && node --test --test-name-pattern="notify their own workspace only|never changes the response" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL — the first assertion `assert.equal(batches.length,1)` receives `0`, because nothing fires yet.
 
 - [ ] **Step 3: Import `notify`**
@@ -1195,7 +1195,7 @@ Lines 149-151 are unchanged. Line 153 becomes:
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
-Run: `npm run build && node --test --test-name-pattern="notify their own workspace only|never changes the response" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: both PASS.
 
 - [ ] **Step 8: Confirm the whole suite is still green**
@@ -1257,7 +1257,7 @@ Add inside the `try` in `tests/alerts.mjs`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm run build && node --test --test-name-pattern="watchdog notifies" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL — `batches.length` is `0`.
 
 - [ ] **Step 3: Return the incident IDs from the transaction and notify after it commits**
@@ -1301,7 +1301,7 @@ Notifications happen strictly after the transaction commits, so a rolling-back t
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npm run build && node --test --test-name-pattern="watchdog notifies" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: PASS.
 
 - [ ] **Step 5: Confirm the pre-existing watchdog assertions still hold**
@@ -1358,7 +1358,7 @@ The last three assertions carry information the earlier ones do not: the remove 
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm run build && node --test --test-name-pattern="dashboard ships an alert panel" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: FAIL on `assert.match(asset.data, /'\/v1\/alerts'/)`.
 
 - [ ] **Step 3: Fetch the channel list on every refresh**
@@ -1448,7 +1448,7 @@ document.addEventListener('change',e=>{if(e.target.id!=='alertKind')return;const
 
 - [ ] **Step 10: Run the test to verify it passes**
 
-Run: `npm run build && node --test --test-name-pattern="dashboard ships an alert panel" tests/alerts.mjs`
+Run: `npm run build && node --test tests/alerts.mjs`
 Expected: PASS.
 
 - [ ] **Step 11: Verify the panel by hand**
