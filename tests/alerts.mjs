@@ -77,9 +77,15 @@ try{
    bad('https://192.168.1.10/hook','private range must be refused');
    bad('https://172.16.4.4/hook','private range must be refused');
    bad('https://[::1]/hook','IPv6 loopback must be refused');
+   bad('https://[::ffff:7f00:1]/hook','IPv4-mapped loopback must be refused');
+   bad('https://[::ffff:a9fe:a9fe]/latest/meta-data','IPv4-mapped metadata must be refused');
+   bad('https://[::ffff:a00:5]/hook','IPv4-mapped private range must be refused');
+   bad('https://[fec0::1]/hook','deprecated site-local must be refused');
+   bad('https://localhost./hook','localhost with a trailing dot must be refused');
    bad('https://x.test/'+'a'.repeat(1200),'over-long URL must be refused');
-   for(const address of ['127.0.0.1','10.1.2.3','169.254.169.254','172.20.0.1','192.168.0.1','100.64.0.1','0.0.0.0','224.0.0.1','::1','::','fd00::1','fe80::1','::ffff:127.0.0.1'])assert.equal(isBlockedAddress(address),true,address);
-   for(const address of ['93.184.216.34','8.8.8.8','2606:4700::1111','::ffff:8.8.8.8'])assert.equal(isBlockedAddress(address),false,address);
+   for(const allowed of ['https://100.128.0.1/hook','https://172.32.0.1/hook','https://11.0.0.1/hook','https://[2606:4700::1111]/hook'])validChannelUrl(allowed);
+   for(const address of ['127.0.0.1','10.1.2.3','169.254.169.254','172.20.0.1','192.168.0.1','100.64.0.1','0.0.0.0','224.0.0.1','::1','::','fd00::1','fe80::1','fec0::1','::ffff:127.0.0.1','::ffff:7f00:1','::ffff:a9fe:a9fe'])assert.equal(isBlockedAddress(address),true,address);
+   for(const address of ['93.184.216.34','8.8.8.8','2606:4700::1111','::ffff:8.8.8.8','::ffff:808:808','100.128.0.1','172.32.0.1'])assert.equal(isBlockedAddress(address),false,address);
    await assert.rejects(assertDeliverableAddress('169.254.169.254'));
    await assert.rejects(assertDeliverableAddress('localhost'));
    await assert.doesNotReject(assertDeliverableAddress('93.184.216.34'));
