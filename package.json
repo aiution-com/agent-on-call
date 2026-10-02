@@ -1,0 +1,39 @@
+{
+  "name": "agentoncall",
+  "version": "1.0.0",
+  "description": "AgentOnCall \u2014 operations layer for always-on agent fleets",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "migrate": "node scripts/migrate.mjs",
+    "test": "npm run build && node --test tests/*.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai-agents",
+    "operations",
+    "oncall",
+    "incident-response"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@slack/bolt": "^5.1.0",
+    "@slack/web-api": "^8.2.0",
+    "@slack/webhook": "^8.0.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "pg": "^8.23.1",
+    "tsx": "^4.20.6",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/node": "^26.6.3",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2"
+  }
+}
