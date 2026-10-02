@@ -198,6 +198,63 @@ try{
    assert.deepEqual(await drain(),[]);
   });
    setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
+  await t.test('the alerts API is operator-only, scoped, and reports delivery results',async()=>{
+   const a=await signup('Alert Heidi'), b=await signup('Alert Ivan');
+   const call=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:a.cookie});
+   const other=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:b.cookie});
+   assert.equal((await request('/api/v1/alerts',{method:'POST'})).status,401);
+   assert.equal((await request('/api/v1/alerts',{method:'POST',cookie:a.cookie,body:{},origin:null})).status,403);
+   const saved=await call('/alerts','PUT',{kind:'slack',url:'https://example.test/slack'});
+   assert.equal(saved.status,200);
+   assert.equal(saved.data.kind,'slack');
+   assert.equal(saved.data.secret,undefined);
+   const listed=await call('/alerts');
+   assert.equal(listed.status,200);
+   assert.equal(listed.data.channels.length,1);
+   assert.equal(listed.data.channels[0].secret,undefined);
+   assert.equal(listed.data.channels[0].url,'https://example.test/slack');
+   assert.deepEqual((await other('/alerts')).data.channels,[]);
+   assert.equal((await other('/alerts?kind=slack','DELETE')).status,404);
+   assert.equal((await call('/alerts','PUT',{kind:'sms',url:'https://example.test/x'})).status,400);
+   assert.equal((await call('/alerts','PUT',{kind:'webhook',url:'http://example.test/x'})).status,400);
+   assert.equal((await call('/alerts','PUT',{kind:'webhook',url:'https://169.254.169.254/latest'})).status,400);
+   assert.equal((await call('/alerts?kind=sms','DELETE')).status,400);
+   const key=await call('/keys','POST',{name:'Alert agent'});
+   assert.equal(key.status,201);
+   const machine=(path,method='GET',body)=>request('/api/v1'+path,{key:key.data.token,origin:null,method,body});
+   for(const [path,method,body] of [['/alerts','GET'],['/alerts','PUT',{kind:'slack',url:'https://example.test/x'}],['/alerts?kind=slack','DELETE'],['/alerts','POST']]){
+    const denied=await machine(path,method,body);
+    assert.equal(denied.status,403,`${method} ${path} must refuse an agent key`);
+   }
+   const tested=await call('/alerts','POST',{});
+   assert.equal(tested.status,200);
+   assert.equal(tested.data.ok,true);
+   assert.deepEqual(tested.data.delivered.map(d=>d.kind),['slack']);
+   assert.equal((await drain()).length,1);
+   const empty=await other('/alerts','POST',{});
+   assert.equal(empty.status,409);
+   assert.match(empty.data.error,/Configure an alert channel first/);
+   assert.equal((await other('/alerts','PUT',{kind:'webhook',url:'https://example.test/hook',secret:'a-signing-secret-value'})).status,200);
+   const signed=await other('/alerts','POST',{});
+   assert.equal(signed.status,200);
+   assert.equal(signed.data.ok,true);
+   assert.deepEqual(signed.data.delivered.map(d=>d.kind),['webhook']);
+   const webhook=(await drain())[0];
+   assert.equal(webhook.url,'https://example.test/hook');
+   assert.equal(webhook.headers['X-AgentOnCall-Event'],'test');
+   assert.equal(webhook.headers['X-AgentOnCall-Signature'],`sha256=${createHmac('sha256','a-signing-secret-value').update(webhook.body).digest('hex')}`);
+   assert.match(webhook.body,/"message":"Test alert from AgentOnCall\."/);
+   const {setAlertTransport}=require('../dist/alerts.js');
+   setAlertTransport(async()=>({status:404}));
+   const failed=await other('/alerts','POST',{});
+   assert.equal(failed.status,200);
+   assert.equal(failed.data.ok,false);
+   assert.equal(failed.data.delivered[0].status,404);
+   setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
+   await drain();
+   assert.equal((await call('/alerts?kind=slack','DELETE')).status,200);
+   assert.deepEqual((await call('/alerts')).data.channels,[]);
+  });
  });
 }finally{
  for(const org of created){await pool.query('DELETE FROM approval_requests WHERE task_id IN(SELECT id FROM tasks WHERE org_id=$1)',[org]);await pool.query('DELETE FROM incidents WHERE org_id=$1',[org]);await pool.query('DELETE FROM tasks WHERE org_id=$1',[org]);await pool.query('DELETE FROM agents WHERE org_id=$1',[org]);await pool.query('DELETE FROM policies WHERE org_id=$1',[org]);await pool.query('DELETE FROM workspaces WHERE id=$1',[org]);}

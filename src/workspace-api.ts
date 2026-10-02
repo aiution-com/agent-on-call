@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { query, transaction } from './db';
 import { identity, requireSession, digest, textField } from './auth';
+import { listChannels, saveChannel, removeChannel, sendTest } from './alerts';
 
 export const workspaceApi = Router();
 const fail = (message:string,status=400): never => { throw Object.assign(new Error(message),{status}); };
@@ -170,5 +171,9 @@ workspaceApi.post('/onboarding/sample',requireSession,async(req,res)=>{
     await c.query("INSERT INTO task_logs(task_id,message,level) VALUES($1,'Sample task created. Waiting for your approval. No external action will run.','pause')",[task.id]);return task;
   });res.status(201).json(result);
 });
+workspaceApi.get('/alerts',requireSession,async(req,res)=>res.json({channels:await listChannels(identity(res).org_id)}));
+workspaceApi.put('/alerts',requireSession,async(req,res)=>res.json({ok:true,...await saveChannel(identity(res).org_id,req.body)}));
+workspaceApi.delete('/alerts',requireSession,async(req,res)=>{await removeChannel(identity(res).org_id,req.query.kind);res.json({ok:true});});
+workspaceApi.post('/alerts',requireSession,async(req,res)=>res.json(await sendTest(identity(res).org_id)));
 // Legacy demos execute host commands or notify a shared Slack channel. They are not public workspace endpoints.
 workspaceApi.use((_req,res)=>res.status(404).json({error:'Endpoint not found.'}));
