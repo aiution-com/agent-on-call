@@ -61,6 +61,29 @@ try{
    const probe=execFileSync(process.execPath,['-e',`require(${target});const external=Object.keys(require.cache).filter(k=>k.includes('node_modules'));console.log(JSON.stringify(external));`],{encoding:'utf8'});
    assert.deepEqual(JSON.parse(probe),[]);
   });
+  await t.test('alert URLs are validated and internal addresses are refused',async()=>{
+   const {validChannelUrl,isBlockedAddress,assertDeliverableAddress}=require('../dist/alert-url.js');
+   const ok=validChannelUrl('https://hooks.slack.com/services/T000/B000/XXXX');
+   assert.equal(ok.url,'https://hooks.slack.com/services/T000/B000/XXXX');
+   assert.equal(ok.host,'hooks.slack.com');
+   const bad=(value,label)=>{assert.throws(()=>validChannelUrl(value),error=>error.status===400,label);};
+   bad('http://hooks.slack.com/services/x','http must be refused');
+   bad('not a url','garbage must be refused');
+   bad('https://user:pass@hooks.slack.com/x','embedded credentials must be refused');
+   bad('https://localhost/hook','localhost must be refused');
+   bad('https://127.0.0.1/hook','loopback must be refused');
+   bad('https://169.254.169.254/latest/meta-data','link-local metadata must be refused');
+   bad('https://10.0.0.5/hook','private range must be refused');
+   bad('https://192.168.1.10/hook','private range must be refused');
+   bad('https://172.16.4.4/hook','private range must be refused');
+   bad('https://[::1]/hook','IPv6 loopback must be refused');
+   bad('https://x.test/'+'a'.repeat(1200),'over-long URL must be refused');
+   for(const address of ['127.0.0.1','10.1.2.3','169.254.169.254','172.20.0.1','192.168.0.1','100.64.0.1','0.0.0.0','224.0.0.1','::1','::','fd00::1','fe80::1','::ffff:127.0.0.1'])assert.equal(isBlockedAddress(address),true,address);
+   for(const address of ['93.184.216.34','8.8.8.8','2606:4700::1111','::ffff:8.8.8.8'])assert.equal(isBlockedAddress(address),false,address);
+   await assert.rejects(assertDeliverableAddress('169.254.169.254'));
+   await assert.rejects(assertDeliverableAddress('localhost'));
+   await assert.doesNotReject(assertDeliverableAddress('93.184.216.34'));
+  });
  });
 }finally{
  for(const org of created){await pool.query('DELETE FROM approval_requests WHERE task_id IN(SELECT id FROM tasks WHERE org_id=$1)',[org]);await pool.query('DELETE FROM incidents WHERE org_id=$1',[org]);await pool.query('DELETE FROM tasks WHERE org_id=$1',[org]);await pool.query('DELETE FROM agents WHERE org_id=$1',[org]);await pool.query('DELETE FROM policies WHERE org_id=$1',[org]);await pool.query('DELETE FROM workspaces WHERE id=$1',[org]);}
