@@ -312,6 +312,32 @@ try{
    setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
    sent.length=0;
   });
+  await t.test('the watchdog notifies the affected workspace and keeps its return value',async()=>{
+   const a=await signup('Alert Mona'), b=await signup('Alert Nina');
+   const call=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:a.cookie});
+   const other=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:b.cookie});
+   await call('/alerts','PUT',{kind:'webhook',url:'https://example.test/mona',secret:'a-signing-secret-value'});
+   await other('/alerts','PUT',{kind:'webhook',url:'https://example.test/nina',secret:'another-signing-secret'});
+   const key=(await call('/keys','POST',{name:'Watchdog agent'})).data;
+   const machine=(path,method='GET',body)=>request('/api/v1'+path,{key:key.token,origin:null,method,body});
+   const agent=(await machine('/agents','POST',{name:'Watchdog worker',type:'test'})).data;
+   const task=(await call('/tasks','POST',{title:'Budget watch',budgetUsd:1})).data;
+   await machine(`/tasks/${task.id}/claim`,'POST',{agentId:agent.id});
+   await machine(`/tasks/${task.id}/status`,'PATCH',{status:'in_progress'});
+   await machine(`/tasks/${task.id}/spend`,'POST',{amountUsd:1});
+   await drain();
+   const {inspectWorkspace}=require('../dist/workspace-watchdog.js');
+   assert.equal(await inspectWorkspace(a.profile.org_id),1);
+   const batches=await drain();
+   assert.equal(batches.length,1);
+   assert.equal(batches[0].url,'https://example.test/mona');
+   const payload=JSON.parse(batches[0].body);
+   assert.equal(payload.event,'incident_created');
+   assert.equal(payload.data.title,'Reported budget limit reached');
+   assert.equal(payload.workspace.id,a.profile.org_id);
+   assert.equal(await inspectWorkspace(a.profile.org_id),0);
+   assert.deepEqual(await drain(),[]);
+  });
  });
 }finally{
  for(const org of created){await pool.query('DELETE FROM approval_requests WHERE task_id IN(SELECT id FROM tasks WHERE org_id=$1)',[org]);await pool.query('DELETE FROM incidents WHERE org_id=$1',[org]);await pool.query('DELETE FROM tasks WHERE org_id=$1',[org]);await pool.query('DELETE FROM agents WHERE org_id=$1',[org]);await pool.query('DELETE FROM policies WHERE org_id=$1',[org]);await pool.query('DELETE FROM workspaces WHERE id=$1',[org]);}

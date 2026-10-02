@@ -1,23 +1,28 @@
 import { query, transaction } from './db';
+import { notify } from './alerts';
 
 /** Marks unresponsive or over-budget tasks halted; adapters must enforce the stop. */
 export async function inspectWorkspace(orgId: string) {
-  return transaction(async client => {
+  const result = await transaction(async client => {
     await client.query('SELECT id FROM workspaces WHERE id=$1 FOR SHARE',[orgId]);
     const candidates=await client.query(`SELECT t.*, a.last_seen_at FROM tasks t JOIN agents a ON a.id=t.agent_id
       WHERE t.org_id=$1 AND t.status IN ('claimed','in_progress')
       AND ((t.budget_usd IS NOT NULL AND t.spent_usd>=t.budget_usd)
         OR a.last_seen_at<now()-interval '3 minutes') FOR UPDATE OF t`,[orgId]);
+    const incidents: string[] = [];
     for(const task of candidates.rows){
       const budget=task.budget_usd!==null && Number(task.spent_usd)>=Number(task.budget_usd);
       const reason=budget?'Reported budget limit reached':'Agent missed its heartbeat';
       await client.query("UPDATE tasks SET status='halted' WHERE id=$1",[task.id]);
       await client.query("UPDATE agents SET status='halted' WHERE id=$1",[task.agent_id]);
-      await client.query("INSERT INTO incidents(org_id,agent_id,task_id,title,description,severity) VALUES($1,$2,$3,$4,$5,'high')",[orgId,task.agent_id,task.id,reason,'Task marked halted. The connected worker must stop before its next external action.']);
+      const incident=await client.query("INSERT INTO incidents(org_id,agent_id,task_id,title,description,severity) VALUES($1,$2,$3,$4,$5,'high') RETURNING id",[orgId,task.agent_id,task.id,reason,'Task marked halted. The connected worker must stop before its next external action.']);
       await client.query("INSERT INTO task_logs(task_id,message,level) VALUES($1,$2,'warn')",[task.id,reason]);
+      incidents.push(incident.rows[0].id);
     }
-    return candidates.rowCount;
+    return {count:candidates.rowCount,incidents};
   });
+  for(const incidentId of result.incidents)void notify(orgId,{type:'incident_created',incidentId});
+  return result.count;
 }
 export function startWorkspaceWatchdog(){
   let running=false,cycles=0;

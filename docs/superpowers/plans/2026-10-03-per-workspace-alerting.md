@@ -1273,7 +1273,7 @@ Add inside the `try` in `tests/alerts.mjs`:
   await t.test('the watchdog notifies the affected workspace and keeps its return value',async()=>{
    const a=await signup('Alert Mona'), b=await signup('Alert Nina');
    const call=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:a.cookie});
-   const other=(path,method='GET',body)=>request('/api/v1'+path,{method,body:cookie:b.cookie});
+   const other=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:b.cookie});
    await call('/alerts','PUT',{kind:'webhook',url:'https://example.test/mona',secret:'a-signing-secret-value'});
    await other('/alerts','PUT',{kind:'webhook',url:'https://example.test/nina',secret:'another-signing-secret'});
    const key=(await call('/keys','POST',{name:'Watchdog agent'})).data;
