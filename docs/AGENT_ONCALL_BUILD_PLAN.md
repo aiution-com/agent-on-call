@@ -31,5 +31,5 @@ The optional onboarding sample is marked as practice, scoped to the account, and
 - Agent keys are scoped to a workspace, not individual agents/resources.
 - External adapters must honor stop signals; the server cannot kill arbitrary external processes.
 - Agent cost figures are self-reported.
-- Per-workspace Slack installation and verified interactive callbacks are not enabled yet.
+- Per-workspace outbound alerts (Slack or a signed webhook) are implemented. Slack OAuth installation and verified interactive callbacks are not: notifications are one-way, and approvals are decided in the dashboard.
 - Stable hosting, automated database backups, and a permanent domain remain deployment work. The current preview requires the local computer, PostgreSQL, server, and tunnel to stay running.

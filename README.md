@@ -103,13 +103,60 @@ The eight tools cover registering, listing tasks, claiming, reporting progress, 
 
 The TypeScript `AgentGuard` SDK accepts `{apiUrl,apiKey,agentName}`. It creates/claims a task, waits for approval, checks stop status, calls the supplied action, and records completion. Action callbacks remain responsible for cooperation with stops during long-running work.
 
+## Alerts
+
+Each workspace can notify one Slack channel and one webhook of its own:
+
+- `GET /api/v1/alerts` — configured destinations. The signing secret is never returned.
+- `PUT /api/v1/alerts` — `{kind, url, secret?}` where `kind` is `slack` or `webhook`. An upsert.
+  `secret` is required for `webhook` and must be 16–200 characters; Slack incoming webhooks
+  cannot verify a signature, so Slack destinations have none. Leave `secret` out on an update
+  to keep the stored one.
+- `DELETE /api/v1/alerts?kind=slack` — remove a destination.
+- `POST /api/v1/alerts` — send a test alert and report what happened.
+
+All four require a signed-in operator. Agent keys are refused, so an agent cannot read its
+workspace's destination or point the server somewhere new.
+
+Alerts fire on an approval request, a new incident (from the API or the watchdog), and a
+workspace stop. Operators can also configure this in **Settings** in the dashboard.
+
+Webhook destinations receive:
+
+```json
+{
+  "event": "approval_requested",
+  "occurred_at": "2026-10-03T12:00:00.000Z",
+  "workspace": { "id": "…", "name": "My workspace" },
+  "data": { "…": "event-specific" }
+}
+```
+
+Verify the `X-AgentOnCall-Signature` header, which is `sha256=<hex>` over the exact request
+body, before trusting a payload:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+const expected = createHmac('sha256', process.env.SIGNING_SECRET).update(rawBody).digest('hex');
+const received = req.headers['x-agentoncall-signature'].replace('sha256=', '');
+const valid = received.length === expected.length && timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+```
+
+Delivery is best effort. There are no retries, no delivery log, and no guarantee of arrival:
+an alert is sent once, and a failure is logged on the server and dropped. It never blocks or
+fails the request that triggered it. Destinations must use `https` and cannot point at a
+private, loopback or link-local address, and redirects are refused. Because the destination
+is resolved before connecting, a hostile DNS server that answers differently between the two
+lookups can still reach an internal address; only an authenticated operator can supply a
+destination in the first place.
+
 ## Stop and monitoring semantics
 
 Stopping a workspace blocks new claims and marks active tasks halted. Reopening does not restart tasks automatically; operators restart them individually from Tasks. This is a cooperative stop signal, not remote process termination or reversal of an action already in flight.
 
 The workspace watchdog checks active tasks every 20 seconds. Reported spend reaching a task's budget or an agent missing heartbeats for three minutes marks the task halted and creates an incident. It cannot prevent costs that are not reported or stop an external worker that ignores the signal.
 
-Legacy host-command demos and shared Slack callbacks are not mounted on the public account API. Their source remains for reference. Approvals for new workspaces are handled in the dashboard; per-workspace Slack setup is a future integration.
+Legacy host-command demos and shared Slack callbacks are not mounted on the public account API. Their source remains for reference. Approvals are decided in the dashboard, and outbound alerts are per workspace (see **Alerts**); verified interactive Slack callbacks are not implemented, so notifications are one-way.
 
 ## Validation
 
@@ -117,4 +164,4 @@ Legacy host-command demos and shared Slack callbacks are not mounted on the publ
 npm test
 ```
 
-Tests use the configured local database and an ephemeral HTTP port, create isolated test workspaces, and clean up their records. They cover authentication, CSRF, workspace isolation, operator-only decisions, revocation, sample onboarding, task transitions, stop/restart behavior, budget monitoring, the downloadable worker, and the MCP adapter. They make no Slack or email calls.
+Tests use the configured local database and an ephemeral HTTP port, create isolated test workspaces, and clean up their records. They cover authentication, CSRF, workspace isolation, operator-only decisions, revocation, sample onboarding, task transitions, stop/restart behavior, budget monitoring, the downloadable worker, and the MCP adapter. They make no Slack, webhook or email calls: alert deliveries are replaced with a recorder in the tests.
