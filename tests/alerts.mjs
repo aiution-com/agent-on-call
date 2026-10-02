@@ -338,6 +338,20 @@ try{
    assert.equal(await inspectWorkspace(a.profile.org_id),0);
    assert.deepEqual(await drain(),[]);
   });
+  await t.test('the dashboard ships an alert panel that talks to the alerts API',async()=>{
+   const asset=await request('/assets/dashboard.js');
+   assert.equal(asset.status,200);
+   assert.match(asset.data,/'\/v1\/alerts'/);
+   assert.match(asset.data,/id="alertForm"/);
+   assert.match(asset.data,/id="alertKind"/);
+   assert.match(asset.data,/id="alertUrl"/);
+   assert.match(asset.data,/id="alertSecret"/);
+   assert.match(asset.data,/data-action="test-alert"/);
+   assert.match(asset.data,/data-action="remove-alert"/);
+   assert.match(asset.data,/data-kind=/);
+   assert.match(asset.data,/id="alertSecretField"/);
+   assert.match(asset.data,/addEventListener\('change'/);
+  });
  });
 }finally{
  for(const org of created){await pool.query('DELETE FROM approval_requests WHERE task_id IN(SELECT id FROM tasks WHERE org_id=$1)',[org]);await pool.query('DELETE FROM incidents WHERE org_id=$1',[org]);await pool.query('DELETE FROM tasks WHERE org_id=$1',[org]);await pool.query('DELETE FROM agents WHERE org_id=$1',[org]);await pool.query('DELETE FROM policies WHERE org_id=$1',[org]);await pool.query('DELETE FROM workspaces WHERE id=$1',[org]);}
