@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { query, transaction } from './db';
 import { identity, requireSession, digest, textField } from './auth';
-import { listChannels, saveChannel, removeChannel, sendTest } from './alerts';
+import { listChannels, saveChannel, removeChannel, sendTest, notify } from './alerts';
 
 export const workspaceApi = Router();
 const fail = (message:string,status=400): never => { throw Object.assign(new Error(message),{status}); };
@@ -117,7 +117,7 @@ workspaceApi.post('/approvals',async(req,res)=>{
     const a=(await c.query("INSERT INTO approval_requests(task_id,agent_id,type,amount_usd,context,status) VALUES($1,$2,$3,$4,$5,'pending') RETURNING *",[taskId,agentId,type,amount(req.body.amountUsd,true),JSON.stringify(object(req.body.context))])).rows[0];
     await c.query("UPDATE tasks SET status='paused' WHERE id=$1",[taskId]);
     await c.query("INSERT INTO task_logs(task_id,message,level) VALUES($1,$2,'pause')",[taskId,`Waiting for operator approval: ${type}`]);return a;
-  });res.status(201).json(result);
+  });void notify(org,{type:'approval_requested',approvalId:result.id});res.status(201).json(result);
 });
 workspaceApi.post('/approvals/:id/decide',requireSession,async(req,res)=>{
   const u=identity(res),id=uuid(req.params.id),decision=req.body.decision;
@@ -138,20 +138,22 @@ workspaceApi.post('/incidents',async(req,res)=>{
   const org=identity(res).org_id;
   for(const [field,table] of [['agentId','agents'],['taskId','tasks']])if(req.body[field])found(await query(`SELECT id FROM ${table} WHERE id=$1 AND org_id=$2`,[uuid(req.body[field]),org]));
   const severity=req.body.severity||'warning';if(!['info','warning','high','critical'].includes(severity))fail('Invalid severity.');
-  res.status(201).json(found(await query('INSERT INTO incidents(org_id,agent_id,task_id,title,description,severity,evidence) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[org,req.body.agentId||null,req.body.taskId||null,textField(req.body.title,'Title',200),String(req.body.description||'').slice(0,5000),severity,JSON.stringify(object(req.body.evidence))])));
+  const incident=found(await query('INSERT INTO incidents(org_id,agent_id,task_id,title,description,severity,evidence) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[org,req.body.agentId||null,req.body.taskId||null,textField(req.body.title,'Title',200),String(req.body.description||'').slice(0,5000),severity,JSON.stringify(object(req.body.evidence))]));
+  void notify(org,{type:'incident_created',incidentId:incident.id});
+  res.status(201).json(incident);
 });
 workspaceApi.post('/incidents/:id/resolve',requireSession,async(req,res)=>res.json(found(await query("UPDATE incidents SET status='resolved',resolved_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[uuid(req.params.id),identity(res).org_id]))));
 workspaceApi.post('/policies',requireSession,async(req,res)=>res.status(201).json(found(await query('INSERT INTO policies(org_id,rule_type,rule_value,agent_type) VALUES($1,$2,$3,$4) RETURNING *',[identity(res).org_id,textField(req.body.ruleType,'Rule type',80),JSON.stringify(object(req.body.ruleValue)),req.body.agentType?textField(req.body.agentType,'Agent type',80):null]))));
 workspaceApi.get('/emergency/status',async(req,res)=>res.json({isHalted:found(await query('SELECT halted FROM workspaces WHERE id=$1',[identity(res).org_id])).halted}));
 workspaceApi.post('/emergency/stop',requireSession,async(req,res)=>{
-  const u=identity(res);await transaction(async c=>{
+  const u=identity(res);const stopped=await transaction(async c=>{
     const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR UPDATE',[u.org_id])).rows);
     if(w.halted)return;
     await c.query('UPDATE workspaces SET halted=true WHERE id=$1',[u.org_id]);
     await c.query("UPDATE tasks SET status='halted' WHERE org_id=$1 AND status IN ('claimed','in_progress','paused')",[u.org_id]);
     await c.query("UPDATE agents SET status='halted' WHERE org_id=$1",[u.org_id]);
-    await c.query("INSERT INTO incidents(org_id,title,description,severity) VALUES($1,'EMERGENCY STOP: Workspace paused',$2,'critical')",[u.org_id,`Stopped by ${u.name}. Agent integrations must honor the stopped status before their next action.`]);
-  });res.json({ok:true});
+    return (await c.query("INSERT INTO incidents(org_id,title,description,severity) VALUES($1,'EMERGENCY STOP: Workspace paused',$2,'critical') RETURNING id",[u.org_id,`Stopped by ${u.name}. Agent integrations must honor the stopped status before their next action.`])).rows[0];
+  });if(stopped)void notify(u.org_id,{type:'incident_created',incidentId:stopped.id});if(stopped)void notify(u.org_id,{type:'workspace_halted',stoppedBy:u.name});res.json({ok:true});
 });
 workspaceApi.post('/emergency/resume',requireSession,async(req,res)=>{
   const org=identity(res).org_id;await transaction(async c=>{
