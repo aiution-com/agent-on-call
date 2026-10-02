@@ -37,30 +37,26 @@
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/alerts.mjs`. This is the whole harness for the rest of the plan — later tasks add `t.test(...)` blocks inside the same `try` and add helpers beside these ones.
+Create `tests/alerts.mjs`. This is the whole harness for the rest of the plan — later tasks add `t.test(...)` blocks inside the same `try` and add helpers beside these ones. It grows with the plan: this step creates only what Task 1 needs, and Task 4's first step adds the alerting helpers.
 
 ```js
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { randomUUID, createHmac } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 const require=createRequire(import.meta.url);
 const {app}=require('../dist/index.js');
 const {pool}=require('../dist/db.js');
-const {setAlertTransport,flushAlerts}=require('../dist/alerts.js');
 const server=app.listen(0,'127.0.0.1');
 await new Promise(resolve=>server.once('listening',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 const created=[];
-const sent=[];
-setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
 async function request(path,{method='GET',body,cookie,key,origin=base}={}){
   const response=await fetch(base+path,{method,redirect:'manual',headers:{...(body?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{}),...(key?{Authorization:`Bearer ${key}`}:{ }),...(origin?{Origin:origin}:{})},body:body?JSON.stringify(body):undefined});
   const text=await response.text();let data;try{data=JSON.parse(text);}catch{data=text;}
   return {status:response.status,data,cookie:response.headers.get('set-cookie')?.split(';')[0],headers:response.headers};
 }
 async function signup(label){const email=`aoc-alert-${randomUUID()}@example.test`, password='test-password-84!';const r=await request('/api/auth/signup',{method:'POST',body:{name:label,workspace:label+' workspace',email,password}});assert.equal(r.status,201);const me=await request('/api/auth/me',{cookie:r.cookie});created.push(me.data.org_id);return {cookie:r.cookie,profile:me.data,email,password};}
-async function drain(){await flushAlerts();const copy=sent.slice();sent.length=0;return copy;}
 try{
  await test('per-workspace alerts',async t=>{
   await t.test('the alert_channels table enforces one channel per kind and cascades with its workspace',async()=>{
@@ -88,12 +84,10 @@ try{
 }
 ```
 
-The harness requires `dist/alerts.js`, which does not exist yet, so this file cannot run until Task 4. That is expected — Task 1's test fails on the missing table, and on the missing module. Do not stub `alerts.ts` to make it loadable; the table assertion is what this task proves, and the module arrives in Task 4.
-
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm run migrate && npm run build && node --test tests/alerts.mjs`
-Expected: FAIL — `Cannot find module '../dist/alerts.js'`.
+Run: `npm run build && node --test tests/alerts.mjs`
+Expected: FAIL — `relation "alert_channels" does not exist`. The migration file does not exist yet and is not registered, so `npm run migrate` at this point is a no-op on the old list; run it anyway to confirm it reports only the three existing files.
 
 - [ ] **Step 3: Write the migration**
 
@@ -128,14 +122,12 @@ Run: `npm run migrate`
 Expected: output includes `applied 004_alert_channels.sql`.
 
 Run: `node -e "const{pool}=require('./dist/db.js');pool.query('SELECT column_name,data_type FROM information_schema.columns WHERE table_name=$$alert_channels$$ ORDER BY ordinal_position').then(r=>{console.log(r.rows);return pool.end();})"`
-Expected: eight rows — `id`, `org_id`, `kind`, `url`, `secret`, `created_at`, `updated_at` in that order, plus `updated_at` last. If this prints an empty array, Step 4 was not applied.
+Expected: seven rows, in this order — `id`, `org_id`, `kind`, `url`, `secret`, `created_at`, `updated_at`. An empty array means Step 4 was not applied.
 
-- [ ] **Step 6: Confirm the SQL constraint behavior directly**
+- [ ] **Step 6: Run the test to verify it passes**
 
-The test cannot run yet (Step 1's module import), so verify the two constraints by hand once:
-
-Run: `node -e "const{pool}=require('./dist/db.js');(async()=>{const o=(await pool.query(\"INSERT INTO workspaces(name) VALUES('tmp') RETURNING id\")).rows[0].id;const bad=await pool.query(\"INSERT INTO alert_channels(org_id,kind,url) VALUES(\$1,'sms','https://example.test')\",[o]).catch(e=>e.code);console.log('bad kind ->',bad);await pool.query('DELETE FROM workspaces WHERE id=\$1',[o]);await pool.end();})()"`
-Expected: `bad kind -> 23514`
+Run: `node --test tests/alerts.mjs`
+Expected: PASS. The schema test is the only block in the file at this point, and it asserts all three constraints: the unique `(org_id, kind)` pair, the `kind` check, and the cascade on workspace delete.
 
 - [ ] **Step 7: Commit**
 
@@ -184,6 +176,7 @@ Add this block inside the `try` in `tests/alerts.mjs`, after the Task 1 `t.test`
    assert.equal(withoutActions.at(-1).type,'context');
    assert.match(JSON.stringify(withoutActions),/Review the latest pull request/);
    assert.match(JSON.stringify(withoutActions),/11111111-1111-1111-1111-111111111111/);
+   assert.match(JSON.stringify(withoutActions),/in your AgentOnCall dashboard/);
    const decided=buildDecisionBlocks(approval.id,'approved','Alice',withActions);
    assert.equal(decided.some(b=>b.type==='actions'),false);
    assert.match(JSON.stringify(decided),/Approved by Alice/);
@@ -193,7 +186,8 @@ Add this block inside the `try` in `tests/alerts.mjs`, after the Task 1 `t.test`
   });
   await t.test('importing the block builders loads no dependencies',async()=>{
    const {execFileSync}=await import('node:child_process');
-   const probe=execFileSync(process.execPath,['-e',"require('./dist/alert-blocks.js');const external=Object.keys(require.cache).filter(k=>k.includes('node_modules'));console.log(JSON.stringify(external));"],{cwd:process.cwd(),encoding:'utf8'});
+   const target=JSON.stringify(require.resolve('../dist/alert-blocks.js'));
+   const probe=execFileSync(process.execPath,['-e',`require(${target});const external=Object.keys(require.cache).filter(k=>k.includes('node_modules'));console.log(JSON.stringify(external));`],{encoding:'utf8'});
    assert.deepEqual(JSON.parse(probe),[]);
   });
 ```
@@ -240,14 +234,14 @@ export function buildApprovalBlocks(approval: any, task: any, agent: any, option
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*What agent wants to do:*\n\`\`\`${JSON.stringify(approval.context, null, 2)}\`\`\``,
+        text: `*What the agent wants to do:*\n\`\`\`${JSON.stringify(approval.context, null, 2)}\`\`\``,
       },
     },
   ];
   if (options.actions === false) {
     blocks.push({
       type: 'context',
-      elements: [{ type: 'mrkdwn', text: 'Decide this request in your AgentOnCall dashboard. Notifications are one-way.' }],
+      elements: [{ type: 'mrkdwn', text: `Approval \`${approval.id}\` · Decide it in your AgentOnCall dashboard. Notifications are one-way.` }],
     });
     return blocks;
   }
@@ -351,23 +345,28 @@ export function buildDecisionBlocks(approvalId: string, decision: string, decide
 
 - [ ] **Step 4: Delete the moved functions from `src/slack.ts` and re-export**
 
-In `src/slack.ts`, delete the `buildApprovalBlocks` function (lines 26-72) and the `buildDecisionBlocks` function (lines 166-182) entirely, and add this as the last line of the file:
+In `src/slack.ts`, delete the `buildApprovalBlocks` function (lines 27-72, from the `export function buildApprovalBlocks` line through its closing brace) and the `buildDecisionBlocks` function (lines 167-182). Leave their header comments in place if you like; do not leave a dangling doc comment that describes nothing.
+
+Then add, at the end of the file:
 
 ```ts
-export { buildApprovalBlocks, buildDecisionBlocks } from './alert-blocks';
+import { buildApprovalBlocks, buildDecisionBlocks } from './alert-blocks';
+export { buildApprovalBlocks, buildDecisionBlocks };
 ```
 
-Leave `postApprovalToSlack` and `handleSlackAction` exactly as they are. The file no longer needs to define the builders because `src/slack_routes.ts` and `src/simulation.ts` import them from `./slack`.
+**Both lines are required.** `export { ... } from './alert-blocks'` on its own would not compile: `src/slack.ts:95` calls `buildApprovalBlocks(...)` from inside `postApprovalToSlack`, and a re-export creates no local binding. The `import` gives the local name, the `export` keeps `src/slack_routes.ts:2` working.
+
+Leave `postApprovalToSlack` and `handleSlackAction` exactly as they are.
 
 - [ ] **Step 5: Verify it typechecks and the legacy call sites still resolve**
 
 Run: `npm run typecheck`
-Expected: no output, exit 0. If it reports `Cannot find name 'buildApprovalBlocks'` inside `src/slack.ts`, Step 4's re-export line was not added.
+Expected: no output, exit 0. If it reports `Cannot find name 'buildApprovalBlocks'` inside `src/slack.ts`, Step 4's `import` line was not added.
 
 - [ ] **Step 6: Run the tests**
 
-Run: `npm run build && node --test --test-name-pattern="block builders|importing the block" tests/alerts.mjs`
-Expected: both block-builder tests PASS. The Task 1 schema test still fails, because the file's top-level `require('../dist/alerts.js')` has nothing to load yet.
+Run: `npm run build && node --test tests/alerts.mjs`
+Expected: all blocks PASS — the Task 1 schema test and both new block-builder tests.
 
 - [ ] **Step 7: Commit**
 
@@ -541,7 +540,24 @@ git commit -m "Add alert URL validation and internal-address blocking"
 
 - [ ] **Step 1: Write the failing tests**
 
-Add inside the `try` in `tests/alerts.mjs`. These use the recorder installed at the top of the file, so nothing leaves the machine.
+First extend the harness. Add `createHmac` to the `node:crypto` import at the top of `tests/alerts.mjs`:
+
+```js
+import { randomUUID, createHmac } from 'node:crypto';
+```
+
+and add these beside the other helpers, above `try{`:
+
+```js
+const {setAlertTransport,flushAlerts}=require('../dist/alerts.js');
+const sent=[];
+setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
+async function drain(){await flushAlerts();const copy=sent.slice();sent.length=0;return copy;}
+```
+
+The recorder is installed at module load, before any test runs, so no test in this file can reach the network. `drain()` waits for in-flight notifications and returns what the recorder captured — that is why the tests never poll or sleep.
+
+Then add this inside the `try`:
 
 ```js
   await t.test('channels are stored per workspace and never return their secret',async()=>{
@@ -567,13 +583,19 @@ Add inside the `try` in `tests/alerts.mjs`. These use the recorder installed at 
   });
   await t.test('a blank secret on update keeps the stored signing key',async()=>{
    const a=await signup('Alert Carol');
-   const {saveChannel,readDeliveryChannels}=require('../dist/alerts.js');
+   const {saveChannel,readDeliveryChannels,sendTest}=require('../dist/alerts.js');
    await saveChannel(a.profile.org_id,{kind:'webhook',url:'https://example.test/one',secret:'first-signing-secret'});
    await saveChannel(a.profile.org_id,{kind:'webhook',url:'https://example.test/two'});
    const channels=await readDeliveryChannels(a.profile.org_id);
    assert.equal(channels.length,1);
    assert.equal(channels[0].url,'https://example.test/two');
    assert.equal(channels[0].secret,'first-signing-secret');
+   const tested=await sendTest(a.profile.org_id);
+   assert.equal(tested.ok,true);
+   const delivery=(await drain())[0];
+   assert.equal(delivery.url,'https://example.test/two');
+   assert.equal(delivery.headers['X-AgentOnCall-Event'],'test');
+   assert.equal(delivery.headers['X-AgentOnCall-Signature'],`sha256=${createHmac('sha256','first-signing-secret').update(delivery.body).digest('hex')}`);
    const slack=await saveChannel(a.profile.org_id,{kind:'slack',url:'https://example.test/slack'});
    assert.equal(slack.kind,'slack');
    assert.equal((await readDeliveryChannels(a.profile.org_id)).find(c=>c.kind==='slack').secret,'');
@@ -715,7 +737,9 @@ Add inside the `try` in `tests/alerts.mjs`:
    const payload=JSON.parse(delivery.body);
    assert.match(payload.text,/Approval needed: review/);
    assert.equal(payload.blocks.some(b=>b.type==='actions'),false);
-   assert.match(JSON.stringify(payload.blocks),/Decide this request in your AgentOnCall dashboard/);
+   assert.match(JSON.stringify(payload.blocks),/Slack blocks/);
+   assert.match(JSON.stringify(payload.blocks),approval.id);
+   assert.match(JSON.stringify(payload.blocks),/in your AgentOnCall dashboard/);
   });
   await t.test('a workspace with no channel sends nothing and a broken destination cannot break the caller',async()=>{
    const a=await signup('Alert Frank');
@@ -920,7 +944,8 @@ Add inside the `try` in `tests/alerts.mjs`:
    const a=await signup('Alert Heidi'), b=await signup('Alert Ivan');
    const call=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:a.cookie});
    const other=(path,method='GET',body)=>request('/api/v1'+path,{method,body,cookie:b.cookie});
-   assert.equal((await request('/api/v1/alerts',{method:'POST',origin:null})).status,401);
+   assert.equal((await request('/api/v1/alerts',{method:'POST'})).status,401);
+   assert.equal((await request('/api/v1/alerts',{method:'POST',cookie:a.cookie,body:{},origin:null})).status,403);
    const saved=await call('/alerts','PUT',{kind:'slack',url:'https://example.test/slack'});
    assert.equal(saved.status,200);
    assert.equal(saved.data.kind,'slack');
@@ -952,6 +977,15 @@ Add inside the `try` in `tests/alerts.mjs`:
    assert.equal(empty.status,409);
    assert.match(empty.data.error,/Configure an alert channel first/);
    assert.equal((await other('/alerts','PUT',{kind:'webhook',url:'https://example.test/hook',secret:'a-signing-secret-value'})).status,200);
+   const signed=await other('/alerts','POST',{});
+   assert.equal(signed.status,200);
+   assert.equal(signed.data.ok,true);
+   assert.deepEqual(signed.data.delivered.map(d=>d.kind),['webhook']);
+   const webhook=(await drain())[0];
+   assert.equal(webhook.url,'https://example.test/hook');
+   assert.equal(webhook.headers['X-AgentOnCall-Event'],'test');
+   assert.equal(webhook.headers['X-AgentOnCall-Signature'],`sha256=${createHmac('sha256','a-signing-secret-value').update(webhook.body).digest('hex')}`);
+   assert.match(webhook.body,/"message":"Test alert from AgentOnCall\."/);
    const {setAlertTransport}=require('../dist/alerts.js');
    setAlertTransport(async()=>({status:404}));
    const failed=await other('/alerts','POST',{});
@@ -1039,6 +1073,15 @@ Add inside the `try` in `tests/alerts.mjs`:
    assert.equal(batches.length,1);
    assert.equal(batches[0].headers['X-AgentOnCall-Event'],'approval_requested');
    assert.equal(JSON.parse(batches[0].body).data.approval_id,approval.id);
+   assert.equal(JSON.parse(batches[0].body).workspace.name,'Alert Judy workspace');
+   const bKey=(await other('/keys','POST',{name:'Bob agent'})).data;
+   const bMachine=(path,method='GET',body)=>request('/api/v1'+path,{key:bKey.token,origin:null,method,body});
+   const bAgent=(await bMachine('/agents','POST',{name:'Bob worker',type:'test'})).data;
+   const bTask=(await other('/tasks','POST',{title:'Bob approval'})).data;
+   await bMachine(`/tasks/${bTask.id}/claim`,'POST',{agentId:bAgent.id});
+   await bMachine(`/tasks/${bTask.id}/status`,'PATCH',{status:'in_progress'});
+   assert.equal((await bMachine('/approvals','POST',{taskId:bTask.id,agentId:bAgent.id,type:'review',context:{action:'Bob only'}})).status,201);
+   assert.deepEqual(await drain(),[]);
    assert.equal((await other('/incidents','POST',{title:'Bob incident only'})).status,201);
    assert.deepEqual(await drain(),[]);
    assert.equal((await call('/incidents','POST',{title:'Alice incident'})).status,201);
@@ -1065,7 +1108,7 @@ Add inside the `try` in `tests/alerts.mjs`:
    assert.equal((await call('/incidents','POST',{title:'Still created'})).status,201);
    setAlertTransport(async()=>{throw new Error('connection refused');});
    assert.equal((await call('/emergency/stop','POST',{})).status,200);
-   assert.equal((await call('/workspace')).data.halted,true);
+   assert.equal((await call('/emergency/status')).data.isHalted,true);
    await flushAlerts();
    setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
    sent.length=0;
@@ -1122,37 +1165,33 @@ The response body is byte-for-byte what `found(...)` returned before, so `tests/
 
 - [ ] **Step 6: Fire on workspace stop**
 
-In `src/workspace-api.ts`, `POST /emergency/stop` runs a transaction from line 148 that ends with the incident insert and `});res.json({ok:true});` at line 153. Change the transaction to return the inserted incident, then notify after it commits.
+`POST /emergency/stop` (lines 145-154) runs a transaction that ends at line 152 with the incident insert, then answers `{ok:true}` at line 153. Change the transaction so it returns the incident it inserted, and fire both alerts only when it actually did something.
 
-Change the `INSERT INTO incidents` line inside the transaction to add `RETURNING id` and make the transaction return it:
+Line 146 is:
 
 ```ts
-    await c.query("INSERT INTO incidents(org_id,title,description,severity) VALUES($1,'EMERGENCY STOP: Workspace paused',$2,'critical')",[u.org_id,`Stopped by ${u.name}. Agent integrations must honor the stopped status before their next action.`]);
+  const u=identity(res);await transaction(async c=>{
 ```
 
-becomes
+Change it to:
+
+```ts
+  const u=identity(res);const stopped=await transaction(async c=>{
+```
+
+Line 152, the incident insert, gains `RETURNING id` and is returned:
 
 ```ts
     return (await c.query("INSERT INTO incidents(org_id,title,description,severity) VALUES($1,'EMERGENCY STOP: Workspace paused',$2,'critical') RETURNING id",[u.org_id,`Stopped by ${u.name}. Agent integrations must honor the stopped status before their next action.`])).rows[0];
 ```
 
-and the handler's closing becomes:
+Lines 149-151 are unchanged. Line 153 becomes:
 
 ```ts
-  });
-  if(stopped)void notify(u.org_id,{type:'incident_created',incidentId:stopped.id});
-  void notify(u.org_id,{type:'workspace_halted',stoppedBy:u.name});
-  res.json({ok:true});
-});
+  });if(stopped)void notify(u.org_id,{type:'incident_created',incidentId:stopped.id});if(stopped)void notify(u.org_id,{type:'workspace_halted',stoppedBy:u.name});res.json({ok:true});
 ```
 
-where the transaction is now assigned:
-
-```ts
-  const stopped=await transaction(async c=>{
-```
-
-The `conflict`-style early 409 returns inside that transaction still short-circuit before either notify runs, which is correct — a refused stop must not alert.
+**Both alerts are guarded on `stopped`, and that is the point.** Line 148 is `if(w.halted)return;` — this handler does not answer 409 for an already-stopped workspace, it answers `{ok:true}` after changing nothing. Firing on both paths would re-alert the workspace about an incident that was never inserted, once per repeat click. Guarded, an alert means "this call stopped the workspace", the only reading an operator can act on.
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
@@ -1309,11 +1348,13 @@ Add inside the `try` in `tests/alerts.mjs`:
    assert.match(asset.data,/id="alertSecret"/);
    assert.match(asset.data,/data-action="test-alert"/);
    assert.match(asset.data,/data-action="remove-alert"/);
-   assert.equal(/<script[^>]*>\s*[^<]/.test(asset.data),false);
+   assert.match(asset.data,/data-kind=/);
+   assert.match(asset.data,/id="alertSecretField"/);
+   assert.match(asset.data,/addEventListener\('change'/);
   });
 ```
 
-The last assertion is a guard against reintroducing inline script, which the CSP would block silently.
+The last three assertions carry information the earlier ones do not: the remove button has to carry its `kind` because the endpoint is `/alerts?kind=`, the secret field has to be an element the change listener can hide, and that listener has to exist as a delegated registration rather than an inline handler — the dashboard's CSP is `script-src 'self'`, so an inline handler would never run.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -1339,10 +1380,12 @@ In `public/assets/dashboard.js:51`, the settings view ends with:
 Append a new section between that section's `</section>` and the grid's closing `</div>`:
 
 ```js
-${(()=>{const channels=state.alerts.channels;return `<section class="card"><div class="card-head"><h2>Alerts</h2></div><div class="card-body">${channels.length?channels.map(c=>`<div class="approval-row"><h3>${escapeHTML(c.kind==='slack'?'Slack':c.kind==='webhook'?'Webhook':'Unknown')}</h3><p class="mono">${escapeHTML(c.url)}</p><div class="actions"><button class="small" data-action="test-alert">Send test alert</button><button class="small danger" data-action="remove-alert" data-kind="${escapeHTML(c.kind)}">Remove channel</button></div></div>`).join(''):'<p class="muted">No alert destination yet. Add one to be notified about approval requests, new incidents, and workspace stops.</p>'}<form id="alertForm"><div class="field"><label for="alertKind">Destination</label><select id="alertKind" name="kind"><option value="slack">Slack incoming webhook</option><option value="webhook">My own webhook (signed)</option></select></div><div class="field"><label for="alertUrl">URL</label><input id="alertUrl" name="url" maxlength="1000" placeholder="https://hooks.slack.com/services/…" required></div><div class="field" id="alertSecretField" hidden><label for="alertSecret">Signing secret</label><input id="alertSecret" name="secret" type="password" autocomplete="new-password" maxlength="200"><small>At least 16 characters, sent to your receiver as an HMAC-SHA256 signature header. Leave blank to keep the current secret.</small></div><button class="primary" type="submit">Save destination</button></form><div class="notice">Alerts are best effort. They are sent once, never retried, and never block the action that triggered them. Approve and reject in the dashboard — notifications are one-way.</div></div></section>`;})()}`
+${(()=>{const channels=state.alerts.channels,active=channels[0];return `<section class="card"><div class="card-head"><h2>Alerts</h2></div><div class="card-body">${channels.length?channels.map(c=>`<div class="approval-row"><h3>${escapeHTML(c.kind==='slack'?'Slack':c.kind==='webhook'?'Webhook':'Unknown')}</h3><p class="mono">${escapeHTML(c.url)}</p><div class="actions"><button class="small" data-action="test-alert">Send test alert</button><button class="small danger" data-action="remove-alert" data-kind="${escapeHTML(c.kind)}">Remove channel</button></div></div>`).join(''):'<p class="muted">No alert destination yet. Add one to be notified about approval requests, new incidents, and workspace stops.</p>'}<form id="alertForm"><div class="field"><label for="alertKind">Destination</label><select id="alertKind" name="kind"><option value="slack"${active?.kind==='slack'?' selected':''}>Slack incoming webhook</option><option value="webhook"${active?.kind==='webhook'?' selected':''}>My own webhook (signed)</option></select></div><div class="field"><label for="alertUrl">URL</label><input id="alertUrl" name="url" maxlength="1000" value="${escapeHTML(active?.url||'')}" placeholder="https://hooks.slack.com/services/…" required></div><div class="field" id="alertSecretField"${active?.kind==='webhook'?'':' hidden'}><label for="alertSecret">Signing secret</label><input id="alertSecret" name="secret" type="password" autocomplete="new-password" maxlength="200"><small>At least 16 characters, sent to your receiver as an HMAC-SHA256 signature header. Leave blank to keep the current secret.</small></div><button class="primary" type="submit">Save destination</button></form><div class="notice">Alerts are best effort. They are sent once, never retried, and never block the action that triggered them. Approve and reject in the dashboard — notifications are one-way.</div></div></section>`;})()}`
 ```
 
-The secret input deliberately has no `required` attribute: it is hidden while Slack is selected, and a hidden required input makes the browser refuse to submit the form with no explanation. The server validates the length and returns a readable message.
+`active` is the first configured channel, and `readDeliveryChannels` orders by kind, so Slack sorts before Webhook. It drives three things in one template pass: which `<option>` is `selected`, what the URL field is prefilled with, and whether the secret field starts hidden. That covers both states the spec asks for — configured (prefilled URL, empty secret) and not configured (hint, no prefill, hidden secret) — with no post-render DOM code, because `render()` rebuilds the whole panel on every refresh and the form is always painted from the current list.
+
+The secret input deliberately has no `required` attribute: it is hidden while Slack is selected, and a hidden required input makes the browser refuse to submit the form with no explanation. The server validates the length and returns a readable message. The field is never prefilled — `GET /api/v1/alerts` does not select `secret`, so the dashboard cannot render it even by accident.
 
 - [ ] **Step 5: Wire the save, test and remove actions**
 
@@ -1394,10 +1437,10 @@ document.addEventListener('change',e=>{if(e.target.id!=='alertKind')return;const
 
 - [ ] **Step 9: Style the select**
 
-`select` is currently unstyled in `public/assets/app.css`. Make these four replacements:
+`select` is currently unstyled in `public/assets/app.css` — the string `select` appears zero times. `app.css` is two lines of minified CSS, so match each full selector rather than a fragment. Make these four replacements:
 
-1. `input,textarea{font:inherit}` → `input,textarea,select{font:inherit}`
-2. `input,textarea{outline-offset:4px}` → `input,textarea,select{outline-offset:4px}`
+1. `button,input,textarea{font:inherit}` → `button,input,textarea,select{font:inherit}`
+2. `button,a,input,textarea{outline-offset:4px}` → `button,a,input,textarea,select{outline-offset:4px}`
 3. `.field input,.field textarea{width:100%;border:1px solid #d8e2dd;border-radius:8px;padding:11px 12px;color:var(--ink);background:white}` → `.field input,.field textarea,.field select{width:100%;border:1px solid #d8e2dd;border-radius:8px;padding:11px 12px;color:var(--ink);background:white}`
 4. `.field input:focus,.field textarea:focus{border-color:var(--green);outline:3px solid #12715b15}` → `.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--green);outline:3px solid #12715b15}`
 
