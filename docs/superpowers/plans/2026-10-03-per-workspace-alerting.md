@@ -781,7 +781,7 @@ Add inside the `try` in `tests/alerts.mjs`:
    assert.match(payload.text,/Approval needed: review/);
    assert.equal(payload.blocks.some(b=>b.type==='actions'),false);
    assert.match(JSON.stringify(payload.blocks),/Slack blocks/);
-   assert.match(JSON.stringify(payload.blocks),approval.id);
+   assert.ok(JSON.stringify(payload.blocks).includes(approval.id));
    assert.match(JSON.stringify(payload.blocks),/in your AgentOnCall dashboard/);
   });
   await t.test('a workspace with no channel sends nothing and a broken destination cannot break the caller',async()=>{
@@ -793,7 +793,7 @@ Add inside the `try` in `tests/alerts.mjs`:
    const {saveChannel,flushAlerts}=require('../dist/alerts.js');
    await saveChannel(b.profile.org_id,{kind:'webhook',url:'https://example.test/broken',secret:'another-signing-secret'});
    setAlertTransport(async()=>{throw new Error('socket hang up');});
-   assert.doesNotReject(notify(b.profile.org_id,{type:'workspace_halted',stoppedBy:'Grace'}));
+   await assert.doesNotReject(notify(b.profile.org_id,{type:'workspace_halted',stoppedBy:'Grace'}));
    const failed=await notify(b.profile.org_id,{type:'workspace_halted',stoppedBy:'Grace'});
    assert.equal(failed.length,1);
    assert.equal(failed[0].ok,false);

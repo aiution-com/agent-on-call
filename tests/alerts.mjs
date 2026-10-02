@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
 const require=createRequire(import.meta.url);
 const {app}=require('../dist/index.js');
 const {pool}=require('../dist/db.js');
@@ -15,6 +15,10 @@ async function request(path,{method='GET',body,cookie,key,origin=base}={}){
   return {status:response.status,data,cookie:response.headers.get('set-cookie')?.split(';')[0],headers:response.headers};
 }
 async function signup(label){const email=`aoc-alert-${randomUUID()}@example.test`, password='test-password-84!';const r=await request('/api/auth/signup',{method:'POST',body:{name:label,workspace:label+' workspace',email,password}});assert.equal(r.status,201);const me=await request('/api/auth/me',{cookie:r.cookie});created.push(me.data.org_id);return {cookie:r.cookie,profile:me.data,email,password};}
+const {setAlertTransport,flushAlerts}=require('../dist/alerts.js');
+const sent=[];
+setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
+async function drain(){await flushAlerts();const copy=sent.slice();sent.length=0;return copy;}
 try{
  await test('per-workspace alerts',async t=>{
   await t.test('the alert_channels table enforces one channel per kind and cascades with its workspace',async()=>{
@@ -90,6 +94,110 @@ try{
    await assert.rejects(assertDeliverableAddress('localhost'));
    await assert.doesNotReject(assertDeliverableAddress('93.184.216.34'));
   });
+  await t.test('channels are stored per workspace and never return their secret',async()=>{
+   const a=await signup('Alert Alice'), b=await signup('Alert Bob');
+   const {saveChannel,listChannels,removeChannel}=require('../dist/alerts.js');
+   const saved=await saveChannel(a.profile.org_id,{kind:'webhook',url:'https://example.test/hook',secret:'a-signing-secret-value'});
+   assert.equal(saved.url,'https://example.test/hook');
+   assert.equal(saved.secret,undefined);
+   const listed=await listChannels(a.profile.org_id);
+   assert.equal(listed.length,1);
+   assert.equal(listed[0].secret,undefined);
+   assert.equal(listed[0].kind,'webhook');
+   assert.deepEqual(await listChannels(b.profile.org_id),[]);
+   await assert.rejects(saveChannel(a.profile.org_id,{kind:'sms',url:'https://example.test/hook'}),error=>error.status===400);
+   await assert.rejects(saveChannel(a.profile.org_id,{kind:'webhook',url:'http://example.test/hook'}),error=>error.status===400);
+   await assert.rejects(saveChannel(a.profile.org_id,{kind:'webhook',url:'https://example.test/hook',secret:'short'}),error=>error.status===400);
+   await assert.rejects(saveChannel(b.profile.org_id,{kind:'webhook',url:'https://example.test/hook'}),error=>error.status===400);
+   await assert.rejects(saveChannel(a.profile.org_id,{kind:'slack',url:'https://example.test/hook',secret:'a-signing-secret-value'}),error=>error.status===400);
+   await assert.rejects(removeChannel(a.profile.org_id,'sms'),error=>error.status===400);
+   await assert.rejects(removeChannel(b.profile.org_id,'webhook'),error=>error.status===404);
+   await removeChannel(a.profile.org_id,'webhook');
+   assert.deepEqual(await listChannels(a.profile.org_id),[]);
+  });
+  await t.test('a blank secret on update keeps the stored signing key',async()=>{
+   const a=await signup('Alert Carol');
+   const {saveChannel,readDeliveryChannels,sendTest}=require('../dist/alerts.js');
+   await saveChannel(a.profile.org_id,{kind:'webhook',url:'https://example.test/one',secret:'first-signing-secret'});
+   await saveChannel(a.profile.org_id,{kind:'webhook',url:'https://example.test/two'});
+   const channels=await readDeliveryChannels(a.profile.org_id);
+   assert.equal(channels.length,1);
+   assert.equal(channels[0].url,'https://example.test/two');
+   assert.equal(channels[0].secret,'first-signing-secret');
+   const tested=await sendTest(a.profile.org_id);
+   assert.equal(tested.ok,true);
+   const delivery=(await drain())[0];
+   assert.equal(delivery.url,'https://example.test/two');
+   assert.equal(delivery.headers['X-AgentOnCall-Event'],'test');
+   assert.equal(delivery.headers['X-AgentOnCall-Signature'],`sha256=${createHmac('sha256','first-signing-secret').update(delivery.body).digest('hex')}`);
+   const slack=await saveChannel(a.profile.org_id,{kind:'slack',url:'https://example.test/slack'});
+   assert.equal(slack.kind,'slack');
+   assert.equal((await readDeliveryChannels(a.profile.org_id)).find(c=>c.kind==='slack').secret,'');
+  });
+  await t.test('deliveries are signed and contain only the triggering workspace data',async()=>{
+   const a=await signup('Alert Dave');
+   const {saveChannel,notify,signBody,setAlertTransport}=require('../dist/alerts.js');
+   const {createHmac}=await import('node:crypto');
+   await saveChannel(a.profile.org_id,{kind:'webhook',url:'https://example.test/hook',secret:'a-signing-secret-value'});
+   const agent=(await pool.query("INSERT INTO agents(org_id,name,type,owner_email,status,last_seen_at) VALUES($1,'Signed worker','test','dave@example.test','in_progress',now()) RETURNING id",[a.profile.org_id])).rows[0];
+   const task=(await pool.query("INSERT INTO tasks(org_id,agent_id,title,source,status) VALUES($1,$2,'Sign this delivery','test','paused') RETURNING id",[a.profile.org_id,agent.id])).rows[0];
+   const approval=(await pool.query("INSERT INTO approval_requests(task_id,agent_id,type,context,status) VALUES($1,$2,'review',$3,'pending') RETURNING id",[task.id,agent.id,JSON.stringify({action:'Check result'})])).rows[0];
+   await notify(a.profile.org_id,{type:'approval_requested',approvalId:approval.id});
+   const batches=await drain();
+   assert.equal(batches.length,1);
+   const delivery=batches[0];
+   assert.equal(delivery.url,'https://example.test/hook');
+   assert.equal(delivery.headers['X-AgentOnCall-Event'],'approval_requested');
+   const expected=createHmac('sha256','a-signing-secret-value').update(delivery.body).digest('hex');
+   assert.equal(delivery.headers['X-AgentOnCall-Signature'],`sha256=${expected}`);
+   assert.equal(delivery.headers['X-AgentOnCall-Signature'],`sha256=${signBody('a-signing-secret-value',delivery.body)}`);
+   const payload=JSON.parse(delivery.body);
+   assert.equal(payload.event,'approval_requested');
+   assert.equal(payload.workspace.id,a.profile.org_id);
+   assert.equal(payload.data.approval_id,approval.id);
+   assert.equal(payload.data.task_title,'Sign this delivery');
+   assert.equal(payload.data.agent.name,'Signed worker');
+   assert.ok(payload.occurred_at);
+  });
+  await t.test('slack deliveries carry blocks, no signature, and no decide buttons',async()=>{
+   const a=await signup('Alert Erin');
+   const {saveChannel,notify}=require('../dist/alerts.js');
+   await saveChannel(a.profile.org_id,{kind:'slack',url:'https://example.test/slack'});
+   const agent=(await pool.query("INSERT INTO agents(org_id,name,type,owner_email,status,last_seen_at) VALUES($1,'Slack worker','test','erin@example.test','in_progress',now()) RETURNING id",[a.profile.org_id])).rows[0];
+   const task=(await pool.query("INSERT INTO tasks(org_id,agent_id,title,source,status) VALUES($1,$2,'Slack blocks','test','paused') RETURNING id",[a.profile.org_id,agent.id])).rows[0];
+   const approval=(await pool.query("INSERT INTO approval_requests(task_id,agent_id,type,context,status) VALUES($1,$2,'review',$3,'pending') RETURNING id",[task.id,agent.id,JSON.stringify({action:'Check result'})])).rows[0];
+   await notify(a.profile.org_id,{type:'approval_requested',approvalId:approval.id});
+   const delivery=(await drain())[0];
+   assert.equal(delivery.headers['X-AgentOnCall-Signature'],undefined);
+   const payload=JSON.parse(delivery.body);
+   assert.match(payload.text,/Approval needed: review/);
+   assert.equal(payload.blocks.some(b=>b.type==='actions'),false);
+   assert.match(JSON.stringify(payload.blocks),/Slack blocks/);
+   assert.ok(JSON.stringify(payload.blocks).includes(approval.id));
+   assert.match(JSON.stringify(payload.blocks),/in your AgentOnCall dashboard/);
+  });
+  await t.test('a workspace with no channel sends nothing and a broken destination cannot break the caller',async()=>{
+   const a=await signup('Alert Frank');
+   const {notify,setAlertTransport}=require('../dist/alerts.js');
+   assert.deepEqual(await notify(a.profile.org_id,{type:'workspace_halted',stoppedBy:'Frank'}),[]);
+   assert.deepEqual(await drain(),[]);
+   const b=await signup('Alert Grace');
+   const {saveChannel,flushAlerts}=require('../dist/alerts.js');
+   await saveChannel(b.profile.org_id,{kind:'webhook',url:'https://example.test/broken',secret:'another-signing-secret'});
+   setAlertTransport(async()=>{throw new Error('socket hang up');});
+   await assert.doesNotReject(notify(b.profile.org_id,{type:'workspace_halted',stoppedBy:'Grace'}));
+   const failed=await notify(b.profile.org_id,{type:'workspace_halted',stoppedBy:'Grace'});
+   assert.equal(failed.length,1);
+   assert.equal(failed[0].ok,false);
+   assert.match(failed[0].error,/socket hang up/);
+   setAlertTransport(async()=>({status:500}));
+   const rejected=await notify(b.profile.org_id,{type:'workspace_halted',stoppedBy:'Grace'});
+   assert.equal(rejected[0].ok,false);
+   assert.equal(rejected[0].status,500);
+   await flushAlerts();
+   assert.deepEqual(await drain(),[]);
+  });
+   setAlertTransport(async(url,init)=>{sent.push({url,headers:init.headers,body:init.body});return {status:200};});
  });
 }finally{
  for(const org of created){await pool.query('DELETE FROM approval_requests WHERE task_id IN(SELECT id FROM tasks WHERE org_id=$1)',[org]);await pool.query('DELETE FROM incidents WHERE org_id=$1',[org]);await pool.query('DELETE FROM tasks WHERE org_id=$1',[org]);await pool.query('DELETE FROM agents WHERE org_id=$1',[org]);await pool.query('DELETE FROM policies WHERE org_id=$1',[org]);await pool.query('DELETE FROM workspaces WHERE id=$1',[org]);}
