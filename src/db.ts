@@ -1,8 +1,8 @@
 import { Pool } from 'pg';
-import 'dotenv/config';
+import { databaseUrl } from './config';
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://agentoncall:agentoncall@localhost:5432/agentoncall',
+  connectionString: databaseUrl,
 });
 
 export async function query(text: string, params?: any[]) {

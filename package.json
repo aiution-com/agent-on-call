@@ -8,6 +8,8 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "migrate": "node scripts/migrate.mjs",
+    "db:backup": "node scripts/backup.mjs",
+    "db:restore": "node scripts/restore.mjs",
     "test": "npm run build && node --test tests/*.mjs",
     "typecheck": "tsc --noEmit"
   },
@@ -21,19 +23,17 @@
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "@slack/bolt": "^5.1.0",
-    "@slack/web-api": "^8.2.0",
     "@slack/webhook": "^8.0.2",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "pg": "^8.23.1",
-    "tsx": "^4.20.6",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.5",
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",
+    "tsx": "^4.20.6",
     "typescript": "^7.0.2"
   }
 }

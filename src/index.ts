@@ -4,11 +4,14 @@ import { pool } from './db';
 import { authRouter, loadIdentity, requireUser, checkOrigin, identity } from './auth';
 import { workspaceApi } from './workspace-api';
 import { startWorkspaceWatchdog } from './workspace-watchdog';
+import { host, port, trustProxy } from './config';
 
 export const app = express();
 app.disable('x-powered-by');
-// cloudflared connects over loopback; accept proxy metadata only from that peer.
-app.set('trust proxy','loopback');
+// Which proxy to believe is a deployment decision, not a constant: the default
+// suits cloudflared on loopback, and a proxy in its own container needs a
+// different answer. See docs/DEPLOY.md.
+app.set('trust proxy',trustProxy);
 app.use((req,res,next)=>{
   res.set('X-Content-Type-Options','nosniff');
   res.set('Referrer-Policy','same-origin');
@@ -39,7 +42,7 @@ app.use((err:any,_req:express.Request,res:express.Response,_next:express.NextFun
   res.status(status).json({error:status>=500?'Something went wrong. Please try again.':err.message||'Invalid request.'});
 });
 if(require.main===module){
-  const server=app.listen(Number(process.env.PORT)||3000,'127.0.0.1',()=>console.log('AgentOnCall listening on localhost:'+ (process.env.PORT||3000)));
+  const server=app.listen(port,host,()=>console.log(`AgentOnCall listening on ${host}:${port}`));
   const stopWatchdog=startWorkspaceWatchdog();
   const stop=()=>{stopWatchdog();server.close(()=>{pool.end().finally(()=>process.exit(0));});};
   process.on('SIGINT',stop);process.on('SIGTERM',stop);

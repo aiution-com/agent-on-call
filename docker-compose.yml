@@ -1,0 +1,60 @@
+# Single-instance deployment: one app container in front of one database.
+#
+# Compose reads a .env file in this directory automatically if one exists, and
+# falls back to the defaults below if not — so `docker compose up -d` works on a
+# fresh clone with no configuration, using development credentials that are
+# perfectly fine for trying it out and must be changed for anything reachable
+# from a network. See docs/DEPLOY.md.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentoncall}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentoncall}
+      POSTGRES_DB: ${POSTGRES_DB:-agentoncall}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentoncall} -d ${POSTGRES_DB:-agentoncall}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+    # Deliberately no published port. The database is reachable on the compose
+    # network only, and from the host via `docker compose exec db ...`.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        # Waits for the database to accept connections, not merely to have
+        # started — otherwise the first boot races Postgres's init.
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      # Must be 0.0.0.0 inside the container for the published port to work.
+      # The isolation is the port binding below, not this value.
+      HOST: 0.0.0.0
+      PORT: 3000
+      RUN_MIGRATIONS: "1"
+      # Correct for reaching the app directly. Set TRUST_PROXY=1 (or the proxy's
+      # subnet) once a reverse proxy sits in front, or the origin check will
+      # reject every mutation. This is explained in docs/DEPLOY.md.
+      TRUST_PROXY: ${TRUST_PROXY:-loopback}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentoncall}:${POSTGRES_PASSWORD:-agentoncall}@db:5432/${POSTGRES_DB:-agentoncall}
+    ports:
+      # Bound to the host's loopback, not to every interface. A reverse proxy on
+      # this host is what terminates TLS and faces the internet; a half-open app
+      # port with no TLS in front of it is not something to leave lying around.
+      - "127.0.0.1:3000:3000"
+    networks: [internal, edge]
+
+volumes:
+  db-data:
+
+networks:
+  internal:
+  edge:

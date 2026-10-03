@@ -11,6 +11,8 @@ npm run build
 npm start
 ```
 
+The app binds `127.0.0.1:3000`. `HOST`, `PORT` and `TRUST_PROXY` can change that; `docs/DEPLOY.md` explains when you would want to.
+
 The API binds to `127.0.0.1:3000`. Open `http://127.0.0.1:3000/signup`, create a profile, and name your workspace. Each signup creates a separate workspace; legacy demo records remain in their original organization and are not assigned to new users.
 
 Configuration in `.env`:
@@ -21,6 +23,14 @@ PORT=3000
 ```
 
 Migrations are transactional, recorded in `schema_migrations`, and can be rerun. Existing data is preserved. The application uses local PostgreSQL for profiles, password hashes, sessions, keys, tasks, approvals, incidents, and logs.
+
+## Run it as a container
+
+```sh
+docker compose up -d
+```
+
+This starts PostgreSQL and the app, applies migrations on first boot, and publishes the app to `127.0.0.1:3000`. For TLS, a reverse proxy, backup and restore, and the `TRUST_PROXY` setting that a proxy in front of the app requires, see **`docs/DEPLOY.md`**.
 
 ## Share through a tunnel
 

@@ -5,3 +5,4 @@ dist/
 .env.local
 *.tsbuildinfo
 DEMO-CREDENTIALS.local.md
+backups/
