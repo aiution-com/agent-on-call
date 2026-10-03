@@ -47,18 +47,45 @@ npm run build
 npm start
 ```
 
-`npm start` prints `AgentOnCall listening on localhost:3000` and stays in the
+`npm start` prints `AgentOnCall listening on 127.0.0.1:3000` and stays in the
 foreground. Leave that terminal tab alone for the rest of the demo — that is
 the server.
 
-If it prints `EADDRINUSE`, a server from an earlier session is still holding
-port 3000. Kill it and start again:
+### Use `127.0.0.1`, never `localhost`
+
+This is not a style preference. Your portfolio dev server
+(`~/shivam.portfolio`) also listens on port 3000, on the IPv6 wildcard, while
+AgentOnCall binds IPv4 loopback. Both bind successfully and neither reports a
+conflict, but they answer different names:
+
+| Address | Serves |
+|---|---|
+| `http://127.0.0.1:3000` | AgentOnCall |
+| `http://localhost:3000` | your portfolio site |
+
+`localhost` resolves to `::1` first on this machine, so opening
+`http://localhost:3000` during the demo would show your portfolio to the room
+instead of AgentOnCall. **Always use `http://127.0.0.1:3000`.**
+
+Confirm before you present — this must print `{"ok":true}`:
+
+```bash
+curl -s http://127.0.0.1:3000/health
+```
+
+If it does not, either AgentOnCall is not running or something else took the
+IPv4 socket. If `npm start` prints `EADDRINUSE`, a server from an earlier
+session still holds port 3000:
 
 ```bash
 lsof -tnP -iTCP:3000 -sTCP:LISTEN | xargs kill
 ```
 
-Then open <http://localhost:3000>. If you signed in during rehearsal you go
+Do not run that blindly — if your portfolio server is the thing holding the
+port, killing it is not what you want. Check with
+`lsof -p <pid> | grep cwd` first.
+
+Then open <http://127.0.0.1:3000>. If you signed in during rehearsal you go
 straight to the dashboard; otherwise use **Sign in** with the credentials from
 `DEMO-CREDENTIALS.local.md`.
 
@@ -111,10 +138,10 @@ returns it, and it is never logged.
 3. Run it in a terminal, pasting your key:
 
 ```bash
-AOC_API_URL='http://localhost:3000' AOC_API_KEY='PASTE_YOUR_KEY' node public/assets/agent-example.mjs
+AOC_API_URL='http://127.0.0.1:3000' AOC_API_KEY='PASTE_YOUR_KEY' node public/assets/agent-example.mjs
 ```
 
-It prints `Connected. Open http://localhost:3000/dashboard#approvals and review
+It prints `Connected. Open http://127.0.0.1:3000/dashboard#approvals and review
 the request.` and then **blocks**.
 
 > "The agent has stopped and is waiting. It will not take the action until a
