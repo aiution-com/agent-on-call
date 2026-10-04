@@ -6,3 +6,4 @@ dist/
 *.tsbuildinfo
 DEMO-CREDENTIALS.local.md
 backups/
+.env.cloudrun

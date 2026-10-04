@@ -42,6 +42,10 @@ cloudflared tunnel --url http://127.0.0.1:3000 --no-autoupdate
 
 Share the generated HTTPS URL. Keep the app, PostgreSQL, tunnel process, and computer running. Quick tunnel URLs change when recreated. The app trusts proxy headers only from loopback, requires matching browser origins for mutations, and sets Secure session cookies when accessed over HTTPS.
 
+## Using it
+
+If you are the person operating a workspace rather than building an integration, read **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** — what the words mean, how to review an approval, what a halted agent means, and honest answers to the questions people ask first. The same content is served by the app at **`/help`**, reachable without signing in.
+
 ## User flow
 
 1. Create a profile with a name, email, password, and workspace name.

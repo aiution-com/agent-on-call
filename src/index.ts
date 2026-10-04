@@ -35,6 +35,9 @@ app.get('/dashboard',(req,res)=>{
   if(identity(res)?.mode!=='session')return res.redirect('/login');
   res.sendFile(path.join(__dirname,'../public/dashboard.html'));
 });
+// Deliberately reachable without signing in: the people who most need it are the
+// ones who have just landed and do not yet know what this is.
+app.get('/help',(_req,res)=>res.sendFile(path.join(__dirname,'../public/help.html')));
 app.use((_req,res)=>res.status(404).json({error:'Page not found.'}));
 app.use((err:any,_req:express.Request,res:express.Response,_next:express.NextFunction)=>{
   const status=err.status || (['22P02','23514','23502'].includes(err.code)?400:500);

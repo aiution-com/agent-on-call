@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How AgentOnCall works</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<main class="content">
+
+  <div class="page-head">
+    <div class="help-lead">
+      <a class="brand" href="/"><span class="mark">a/</span> AgentOnCall</a>
+      <h1>How AgentOnCall works</h1>
+      <p>Everything you need to get your first agent connected, and to understand what you are looking at.</p>
+    </div>
+    <div class="actions">
+      <a href="/login"><button class="primary">Sign in</button></a>
+    </div>
+  </div>
+
+  <div class="notice">
+    <strong>The one-sentence version.</strong>
+    Agents do work for you, and AgentOnCall is the place they check in with you before they do
+    anything that matters — so a human decides, not the agent.
+  </div>
+
+  <section class="card onboarding help-block">
+    <div class="onboarding-head">
+      <div>
+        <span class="eyebrow">Start here</span>
+        <h2>Three steps to your first approval</h2>
+      </div>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <h3>Create your workspace</h3>
+        <p>Your private area. It holds your agents, their tasks, and every decision you make about them.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <h3>Connect an agent</h3>
+        <p>Create an agent key, then point your agent at the API or run the example worker we ship.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <h3>Review the request</h3>
+        <p>When your agent wants to act, it appears in Approvals. You decide, and it continues or stops.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card help-block">
+    <div class="card-head"><h2>The words we use</h2><span class="badge gray">Glossary</span></div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Term</th><th>What it means</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Workspace</strong><small>Your account</small></td><td>Your private area. Nothing in it is visible to, or affected by, anyone else's workspace.</td></tr>
+            <tr><td><strong>Agent</strong><small>Something that does work</small></td><td>An AI agent or script you have connected, identified by its own key.</td></tr>
+            <tr><td><strong>Task</strong><small>A unit of work</small></td><td>One piece of work an agent is doing, with its own status and activity log.</td></tr>
+            <tr><td><strong>Approval</strong><small>A question for you</small></td><td>An agent asking permission before it takes an action. Nothing proceeds until you answer.</td></tr>
+            <tr><td><strong>Incident</strong><small>Something to look at</small></td><td>A record that something went wrong — an agent went quiet, or a task hit its budget.</td></tr>
+            <tr><td><strong>Halted</strong><small>Stopped on purpose</small></td><td>A task or agent that has been stopped. A well-behaved integration checks this and stops acting.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div class="columns help-block">
+    <section class="card">
+      <div class="card-head"><h2>Reviewing an approval</h2></div>
+      <div class="card-body">
+        <p class="muted">
+          Open <strong>Approvals</strong>. Each waiting request shows what the agent wants to do
+          and, importantly, what the effect would be. That declaration is what you are approving —
+          not a blank yes.
+        </p>
+        <p class="muted help-copy"><strong>Approve</strong> lets the agent continue.</p>
+        <p class="muted"><strong>Reject</strong> stops the task and marks it failed. The agent is told the answer.</p>
+        <div class="notice">
+          Approving does not override a stopped workspace. If the workspace is stopped, an approved
+          task still waits until you reopen it.
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Connecting a real agent</h2></div>
+      <div class="card-body">
+        <p class="muted">Two ways in, depending on what you are building.</p>
+        <p class="muted help-copy"><strong>REST API.</strong> Send your key in the
+        <code>Authorization</code> header on every request. The key selects your workspace, so you
+        never pass an account id.</p>
+        <p class="muted help-copy"><strong>MCP.</strong> If your agent speaks the Model Context
+        Protocol, point it at our adapter and the whole task lifecycle becomes tools it can call.</p>
+        <p class="help-cta"><a href="/dashboard#connect">See the exact commands in your dashboard →</a></p>
+      </div>
+    </section>
+  </div>
+
+  <div class="columns help-block">
+    <section class="card">
+      <div class="card-head"><h2>When an agent goes quiet or overspends</h2></div>
+      <div class="card-body">
+        <p class="muted">
+          AgentOnCall watches for two things: an agent that has stopped reporting in, and a task
+          that has spent more than the budget you set. In both cases the task is marked
+          <span class="badge amber">halted</span>, the agent is marked halted, and an incident is
+          opened so there is a record.
+        </p>
+        <p class="muted help-copy">
+          A halt is a signal, not a kill switch. It is the connected integration's job to check the
+          status before its next action and stop. That is why we ask you to read the status before
+          every external action when you build an integration.
+        </p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Alerts</h2></div>
+      <div class="card-body">
+        <p class="muted">
+          In <strong>Settings → Alerts</strong> you can send notifications to a Slack channel or to
+          your own webhook. They fire when an agent asks for approval, when an incident is opened,
+          and when a workspace is stopped.
+        </p>
+        <p class="muted help-copy">
+          Webhooks are signed, so your receiver can verify the message really came from us before
+          trusting it. The signing secret is write-only — we never show it back to you.
+        </p>
+        <div class="notice">
+          Delivery is best effort: each alert is sent once, never retried, and never blocks the
+          action that triggered it. Treat alerts as a prompt to check the dashboard, not as a
+          guaranteed record.
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card help-block">
+    <div class="card-head"><h2>Stopping everything</h2></div>
+    <div class="card-body">
+      <p class="muted">
+        <strong>Settings → Workspace controls → Stop workspace</strong> halts the whole workspace.
+        New work cannot be claimed, active tasks are marked halted, and an incident is recorded.
+        Reopening is a separate, deliberate step — nothing resumes on its own, and each halted task
+        needs to be restarted individually.
+      </p>
+    </div>
+  </section>
+
+  <section class="card help-block">
+    <div class="card-head"><h2>Questions people actually ask</h2></div>
+    <div class="card-body">
+
+      <div class="instruction">
+        <span class="step-number">?</span>
+        <div class="instruction-body">
+          <h3>I forgot my password. How do I reset it?</h3>
+          <p>
+            You cannot, yet. There is no password reset and no email is sent from this product, so
+            there is no self-service way back into an account. If you are locked out, whoever runs
+            your AgentOnCall instance has to help you directly. We would rather say this plainly
+            than have you discover it at the sign-in screen.
+          </p>
+        </div>
+      </div>
+
+      <div class="instruction">
+        <span class="step-number">?</span>
+        <div class="instruction-body">
+          <h3>Can I invite a colleague?</h3>
+          <p>
+            Not yet. One workspace currently has one operator, so there is no way to add a second
+            person or give someone a read-only view. If more than one person needs to approve
+            things, you will each need your own workspace for now.
+          </p>
+        </div>
+      </div>
+
+      <div class="instruction">
+        <span class="step-number">?</span>
+        <div class="instruction-body">
+          <h3>My agent says it cannot connect.</h3>
+          <p>
+            Check three things in order: that the key is complete and has not been revoked, that the
+            workspace has not been stopped, and that the agent is pointed at the right address. A
+            stopped workspace refuses new work, which looks like a connection problem from the
+            agent's side.
+          </p>
+        </div>
+      </div>
+
+      <div class="instruction">
+        <span class="step-number">?</span>
+        <div class="instruction-body">
+          <h3>My agent ran, but I see nothing.</h3>
+          <p>
+            Look in <strong>Approvals</strong> first — a request waiting for you does not appear
+            anywhere else. If it is not there, open <strong>Tasks</strong> and check that task's
+            activity; a rejected or failed task records why.
+          </p>
+        </div>
+      </div>
+
+      <div class="instruction">
+        <span class="step-number">?</span>
+        <div class="instruction-body">
+          <h3>My alert never arrived.</h3>
+          <p>
+            Delivery is best effort and is never retried, so a single missed alert is expected
+            behaviour rather than a bug. Use <strong>Send test alert</strong> to check the
+            destination is right, and remember the address must be a public <code>https</code> URL —
+            we refuse internal addresses on purpose.
+          </p>
+        </div>
+      </div>
+
+      <div class="instruction">
+        <span class="step-number">?</span>
+        <div class="instruction-body">
+          <h3>Does this stop an agent that ignores you?</h3>
+          <p>
+            No, and it is worth being clear about that. Everything here is cooperative: an agent
+            that never asks permission, or that ignores a halt, is not physically prevented from
+            acting. What you get is that well-behaved agents pause for you, and that every request
+            and every decision is recorded.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>What this platform does not do</h2><span class="badge gray">Being straight with you</span></div>
+    <div class="card-body">
+      <p class="muted">So you are not surprised later:</p>
+      <ul class="muted help-list">
+        <li>No password reset, and no email of any kind — no verification, no notifications by mail.</li>
+        <li>One operator per workspace; no roles, no invitations.</li>
+        <li>Enforcement is cooperative. An agent that ignores the API is not stopped by it.</li>
+        <li>Alerts are best effort, with no retries and no delivery log.</li>
+        <li>Notifications are one-way. Approvals happen here in the dashboard, not in Slack.</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="page-foot">
+    <span>AgentOnCall · how it works</span>
+    <a href="/">Back to the start →</a>
+  </div>
+
+</main>
+</body>
+</html>

@@ -11,6 +11,10 @@ dist
 
 .env
 .env.local
+# Every env file, not a list of them. A cloud build context is uploaded to GCS,
+# so anything matched here is what keeps a database password out of a bucket
+# someone else's job can read.
+.env.*
 DEMO-CREDENTIALS.local.md
 *.log
 *.tsbuildinfo

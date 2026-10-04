@@ -68,6 +68,40 @@ test('the deployment contract holds', async t => {
   });
 });
 
+test('the help page is reachable and answers the questions that cause support tickets', async t => {
+  // Reachable WITHOUT a session, deliberately: someone who has just been handed a
+  // URL has no account yet, and that is exactly who needs this page.
+  const response = await fetch(`${base}/help`);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+
+  await t.test('it renders without any session cookie', () => {
+    assert.match(html, /How AgentOnCall works/);
+  });
+
+  // Each of these is a question a real user asks. If a rewrite drops one, the page
+  // stops doing its job, which is not something the eye catches in review.
+  await t.test('it explains the vocabulary', () => {
+    for (const term of ['Workspace', 'Agent', 'Task', 'Approval', 'Incident', 'Halted']) {
+      assert.ok(html.includes(term), `glossary is missing "${term}"`);
+    }
+  });
+
+  await t.test('it is honest about what the product cannot do', () => {
+    assert.match(html, /I forgot my password/i);
+    assert.match(html, /Can I invite a colleague/i);
+    assert.match(html, /cooperative/i);
+  });
+
+  await t.test('it obeys the CSP: no inline styles or scripts', () => {
+    // style-src is 'self' with no unsafe-inline, so a style attribute would be
+    // silently dropped by the browser and the page would look broken with no error.
+    assert.equal(/style\s*=/.test(html), false, 'help.html contains an inline style, which the CSP blocks');
+    assert.equal(/<script/i.test(html), false, 'help.html contains a script tag; the page should need none');
+    assert.equal(/\son[a-z]+\s*=/i.test(html), false, 'help.html contains an inline event handler, which the CSP blocks');
+  });
+});
+
 test('TRUST_PROXY parses the values a deployment would set', () => {
   // Default: the laptop topology, where cloudflared connects over loopback.
   assert.equal(parseTrustProxy(undefined), 'loopback');
