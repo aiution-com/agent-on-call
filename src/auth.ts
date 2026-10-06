@@ -28,7 +28,8 @@ function sessionToken(req: Request) {
 }
 export async function loadIdentity(req: Request, res: Response, next: NextFunction) {
   try {
-    const bearer = req.headers.authorization?.match(/^Bearer (aoc_[A-Za-z0-9_-]+)$/)?.[1];
+    // The scheme is case-insensitive per the HTTP spec, so "bearer" must work too.
+    const bearer = req.headers.authorization?.match(/^Bearer (aoc_[A-Za-z0-9_-]+)$/i)?.[1];
     const session = sessionToken(req);
     const fields = 'u.id, u.org_id, u.email, u.name, w.name AS workspace_name';
     let rows: any[] = [];
@@ -48,6 +49,13 @@ export function requireSession(_req: Request, res: Response, next: NextFunction)
 }
 export function checkOrigin(req: Request, res: Response, next: NextFunction) {
   if (['GET','HEAD','OPTIONS'].includes(req.method) || identity(res)?.mode === 'key') { next(); return; }
+  // A key was offered and did not resolve. Reporting that as a bad origin sends
+  // the caller hunting a CORS problem when the real answer is a bad key — and
+  // they are indistinguishable from here, because an unresolved key leaves no
+  // identity for the origin check to see. Say the useful thing instead.
+  if (/^bearer /i.test(req.headers.authorization || '') && !identity(res)) {
+    res.status(401).json({ error: 'That agent key is not valid or has been revoked.' }); return;
+  }
   const expected = `${req.protocol}://${req.get('host')}`;
   if (req.get('origin') !== expected) { res.status(403).json({ error: 'Request origin is not allowed.' }); return; }
   next();

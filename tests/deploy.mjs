@@ -68,6 +68,47 @@ test('the deployment contract holds', async t => {
   });
 });
 
+test('a bad agent key is reported as a bad key, not as a bad origin', async t => {
+  // The first thing an integrator does is paste the curl from the dashboard with
+  // its placeholder key still in it. That produced "Request origin is not
+  // allowed." — a CSRF message for an authentication problem, which sends people
+  // to configure CORS. These cases must stay distinguishable.
+  const post = (headers) => fetch(`${base}/api/v1/agents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ name: 'probe', type: 'probe' }),
+  });
+
+  await t.test('the literal placeholder is named as an invalid key', async () => {
+    const response = await post({ Authorization: 'Bearer YOUR_AGENT_KEY' });
+    assert.equal(response.status, 401);
+    assert.match((await response.json()).error, /agent key is not valid/i);
+  });
+
+  await t.test('a well-formed but unknown key is also named as an invalid key', async () => {
+    const response = await post({ Authorization: 'Bearer aoc_totally-made-up-key' });
+    assert.equal(response.status, 401);
+    assert.match((await response.json()).error, /agent key is not valid/i);
+  });
+
+  await t.test('a lowercase scheme is accepted, since HTTP says it is case-insensitive', async () => {
+    // Not a 401: the token is still unknown, but it must be *parsed*, which is
+    // what this asserts — a parse failure would fall through to the origin error.
+    const response = await post({ Authorization: 'bearer aoc_also-made-up' });
+    assert.equal(response.status, 401, 'a lowercase bearer scheme should be parsed, not ignored');
+  });
+
+  await t.test('a genuine cross-origin request is still refused as an origin problem', async () => {
+    const response = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://attacker.example' },
+      body: JSON.stringify({ email: 'nobody@example.test', password: 'wrong-password-here' }),
+    });
+    assert.equal(response.status, 403);
+    assert.match((await response.json()).error, /origin/i);
+  });
+});
+
 test('the help page is reachable and answers the questions that cause support tickets', async t => {
   // Reachable WITHOUT a session, deliberately: someone who has just been handed a
   // URL has no account yet, and that is exactly who needs this page.
