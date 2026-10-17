@@ -5,28 +5,42 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>How AgentOnCall works</title>
 <link rel="stylesheet" href="/assets/app.css">
+<link rel="stylesheet" href="/assets/design.css">
 </head>
-<body>
-<main class="content">
+<body class="help-page">
+<header class="help-topbar">
+  <a class="brand" href="/"><span class="mark">a/</span> AgentOnCall</a>
+  <span class="help-topbar-label">User guide</span>
+  <a class="help-signin" href="/login">Sign in <span aria-hidden="true">→</span></a>
+</header>
+
+<main class="content help-shell">
 
   <div class="page-head">
     <div class="help-lead">
-      <a class="brand" href="/"><span class="mark">a/</span> AgentOnCall</a>
       <h1>How AgentOnCall works</h1>
       <p>Everything you need to get your first agent connected, and to understand what you are looking at.</p>
     </div>
-    <div class="actions">
-      <a href="/login"><button class="primary">Sign in</button></a>
-    </div>
   </div>
 
+  <nav class="help-toc" aria-label="On this page">
+    <span class="eyebrow">On this page</span>
+    <a href="#start">Start here</a>
+    <a href="#glossary">Key terms</a>
+    <a href="#review">Approvals &amp; agents</a>
+    <a href="#watch">Halting &amp; alerts</a>
+    <a href="#stop">Stopping</a>
+    <a href="#questions">Questions</a>
+    <a href="#limits">Limits</a>
+  </nav>
+
   <div class="notice">
-    <strong>The one-sentence version.</strong>
+    <strong>In brief.</strong>
     Connected agents can use AgentOnCall to request approval before external actions.
     Integrations must check the answer and stop state before acting.
   </div>
 
-  <section class="card onboarding help-block">
+  <section class="card onboarding help-block" id="start">
     <div class="onboarding-head">
       <div>
         <span class="eyebrow">Start here</span>
@@ -52,8 +66,8 @@
     </div>
   </section>
 
-  <section class="card help-block">
-    <div class="card-head"><h2>The words we use</h2><span class="badge gray">Glossary</span></div>
+  <section class="card help-block" id="glossary">
+    <div class="card-head"><h2>Key terms</h2><span class="badge gray">Glossary</span></div>
     <div class="card-body">
       <div class="table-wrap">
         <table>
@@ -71,7 +85,7 @@
     </div>
   </section>
 
-  <div class="columns help-block">
+  <div class="columns help-block" id="review">
     <section class="card">
       <div class="card-head"><h2>Reviewing an approval</h2></div>
       <div class="card-body">
@@ -90,7 +104,7 @@
     </section>
 
     <section class="card">
-      <div class="card-head"><h2>Connecting a real agent</h2></div>
+      <div class="card-head"><h2>Connecting an agent</h2></div>
       <div class="card-body">
         <p class="muted">Two ways in, depending on what you are building.</p>
         <p class="muted help-copy"><strong>REST API.</strong> Send your key in the
@@ -103,7 +117,7 @@
     </section>
   </div>
 
-  <div class="columns help-block">
+  <div class="columns help-block" id="watch">
     <section class="card">
       <div class="card-head"><h2>When an agent goes quiet or overspends</h2></div>
       <div class="card-body">
@@ -142,8 +156,8 @@
     </section>
   </div>
 
-  <section class="card help-block">
-    <div class="card-head"><h2>Stopping everything</h2></div>
+  <section class="card help-block" id="stop">
+    <div class="card-head"><h2>Stopping the workspace</h2></div>
     <div class="card-body">
       <p class="muted">
         <strong>Settings → Workspace controls → Stop workspace</strong> halts the whole workspace.
@@ -154,8 +168,8 @@
     </div>
   </section>
 
-  <section class="card help-block">
-    <div class="card-head"><h2>Questions people actually ask</h2></div>
+  <section class="card help-block" id="questions">
+    <div class="card-head"><h2>Common questions</h2></div>
     <div class="card-body">
 
       <div class="instruction">
@@ -237,8 +251,8 @@
     </div>
   </section>
 
-  <section class="card">
-    <div class="card-head"><h2>What this platform does not do</h2><span class="badge gray">Being straight with you</span></div>
+  <section class="card" id="limits">
+    <div class="card-head"><h2>What this platform does not do</h2><span class="badge gray">Limitations</span></div>
     <div class="card-body">
       <p class="muted">So you are not surprised later:</p>
       <ul class="muted help-list">
