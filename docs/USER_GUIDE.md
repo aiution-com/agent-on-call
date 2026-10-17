@@ -12,11 +12,12 @@ people who need it will actually be looking. When you change one, change both.
 
 ## What this is
 
-Agents do work for you. AgentOnCall is the place they check in with you before
-they do anything that matters — so a human decides, not the agent.
+Agents do work for you. AgentOnCall gives connected agents a place to request
+approval before an external action. Integrations must use that approval flow and
+check the current task and workspace state before acting.
 
-Every request an agent makes is recorded, every decision you make is recorded,
-and nothing an agent asks for proceeds until you answer.
+Requests and decisions made through AgentOnCall are recorded. An agent that
+ignores the API can still act without asking or leaving a record here.
 
 ---
 
@@ -24,10 +25,10 @@ and nothing an agent asks for proceeds until you answer.
 
 | Term | What it means |
 |---|---|
-| **Workspace** | Your private area. Nothing in it is visible to, or affected by, anyone else's workspace. |
-| **Agent** | An AI agent or script you have connected, identified by its own key. |
+| **Workspace** | Your area for agents, tasks, and decisions. The API scopes records to your workspace. |
+| **Agent** | An AI agent or script you have connected with a workspace key. |
 | **Task** | One piece of work an agent is doing, with its own status and activity log. |
-| **Approval** | An agent asking permission before it takes an action. Nothing proceeds until you answer. |
+| **Approval** | An agent asking permission before it takes an action. A cooperative integration waits for your answer. |
 | **Incident** | A record that something went wrong — an agent went quiet, or a task hit its budget. |
 | **Halted** | A task or agent that has been stopped on purpose. A well-behaved integration checks this and stops acting. |
 
@@ -151,8 +152,8 @@ destination is right.
 **Does this stop an agent that ignores you?**
 No, and it is worth being clear about that. Everything here is cooperative: an
 agent that never asks permission, or that ignores a halt, is not physically
-prevented from acting. What you get is that well-behaved agents pause for you,
-and that every request and every decision is recorded.
+prevented from acting. Integrated agents can pause for you. Requests and
+decisions made through AgentOnCall are recorded; actions outside it are not.
 
 ---
 

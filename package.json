@@ -1,7 +1,7 @@
 {
   "name": "agentoncall",
   "version": "1.0.0",
-  "description": "AgentOnCall \u2014 operations layer for always-on agent fleets",
+  "description": "AgentOnCall — operations layer for always-on agent fleets",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -20,10 +20,9 @@
     "incident-response"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "@slack/webhook": "^8.0.2",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "pg": "^8.23.1",

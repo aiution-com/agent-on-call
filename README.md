@@ -2,18 +2,37 @@
 
 A workspace for connecting agents, queueing work, reviewing human approvals, and following task activity.
 
-## Run with the existing local PostgreSQL database
+AgentOnCall is a cooperative control plane. Connected agents must ask for approval and check task and workspace status before external actions. It cannot stop an agent that ignores the API or undo an action already taken. Task policies and permissions are stored for future use; the current API does not enforce them.
+
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURITY.md](SECURITY.md).
+
+Licensed under the [MIT License](LICENSE).
+
+## Quick start
+
+With Docker installed:
 
 ```sh
-npm install
+docker compose up -d --build
+```
+
+Open `http://127.0.0.1:3000/signup`. Compose starts PostgreSQL, applies migrations,
+and runs the app. These are development credentials; change them before making
+an instance reachable from a network. See [docs/DEPLOY.md](docs/DEPLOY.md) for
+deployment and backup instructions.
+
+## Run with an existing local PostgreSQL database
+
+```sh
+npm ci
 npm run migrate
 npm run build
 npm start
 ```
 
-The app binds `127.0.0.1:3000`. `HOST`, `PORT` and `TRUST_PROXY` can change that; `docs/DEPLOY.md` explains when you would want to.
-
-The API binds to `127.0.0.1:3000`. Open `http://127.0.0.1:3000/signup`, create a profile, and name your workspace. Each signup creates a separate workspace; legacy demo records remain in their original organization and are not assigned to new users.
+The API binds to `127.0.0.1:3000`. Open `http://127.0.0.1:3000/signup` to
+create a profile and workspace. `HOST`, `PORT`, and `TRUST_PROXY` configure the
+bind address and proxy behavior; see the deployment guide.
 
 Configuration in `.env`:
 
@@ -23,14 +42,6 @@ PORT=3000
 ```
 
 Migrations are transactional, recorded in `schema_migrations`, and can be rerun. Existing data is preserved. The application uses local PostgreSQL for profiles, password hashes, sessions, keys, tasks, approvals, incidents, and logs.
-
-## Run it as a container
-
-```sh
-docker compose up -d
-```
-
-This starts PostgreSQL and the app, applies migrations on first boot, and publishes the app to `127.0.0.1:3000`. For TLS, a reverse proxy, backup and restore, and the `TRUST_PROXY` setting that a proxy in front of the app requires, see **`docs/DEPLOY.md`**.
 
 ## Share through a tunnel
 
@@ -170,7 +181,9 @@ Stopping a workspace blocks new claims and marks active tasks halted. Reopening 
 
 The workspace watchdog checks active tasks every 20 seconds. Reported spend reaching a task's budget or an agent missing heartbeats for three minutes marks the task halted and creates an incident. It cannot prevent costs that are not reported or stop an external worker that ignores the signal.
 
-Legacy host-command demos and shared Slack callbacks are not mounted on the public account API. Their source remains for reference. Approvals are decided in the dashboard, and outbound alerts are per workspace (see **Alerts**); verified interactive Slack callbacks are not implemented, so notifications are one-way.
+Approvals are decided in the dashboard, and outbound alerts are per workspace
+(see **Alerts**). Interactive Slack callbacks are not implemented, so
+notifications are one-way.
 
 ## Validation
 

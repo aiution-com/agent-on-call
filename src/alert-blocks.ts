@@ -1,7 +1,7 @@
 /**
  * Pure Slack Block Kit builders. This module must not import anything: it is used by
- * the per-workspace alerting path, which must not load a database pool or the Slack
- * webhook client the way src/slack.ts does.
+ * the per-workspace alerting path, which must not load a database pool or a
+ * network client.
  */
 
 // Approval card. The actions block is only useful to a caller that can receive button

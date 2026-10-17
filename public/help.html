@@ -22,8 +22,8 @@
 
   <div class="notice">
     <strong>The one-sentence version.</strong>
-    Agents do work for you, and AgentOnCall is the place they check in with you before they do
-    anything that matters — so a human decides, not the agent.
+    Connected agents can use AgentOnCall to request approval before external actions.
+    Integrations must check the answer and stop state before acting.
   </div>
 
   <section class="card onboarding help-block">
@@ -59,10 +59,10 @@
         <table>
           <thead><tr><th>Term</th><th>What it means</th></tr></thead>
           <tbody>
-            <tr><td><strong>Workspace</strong><small>Your account</small></td><td>Your private area. Nothing in it is visible to, or affected by, anyone else's workspace.</td></tr>
-            <tr><td><strong>Agent</strong><small>Something that does work</small></td><td>An AI agent or script you have connected, identified by its own key.</td></tr>
+            <tr><td><strong>Workspace</strong><small>Your account</small></td><td>Your area for agents, tasks, and decisions. The API scopes records to your workspace.</td></tr>
+            <tr><td><strong>Agent</strong><small>Something that does work</small></td><td>An AI agent or script you have connected with a workspace key.</td></tr>
             <tr><td><strong>Task</strong><small>A unit of work</small></td><td>One piece of work an agent is doing, with its own status and activity log.</td></tr>
-            <tr><td><strong>Approval</strong><small>A question for you</small></td><td>An agent asking permission before it takes an action. Nothing proceeds until you answer.</td></tr>
+            <tr><td><strong>Approval</strong><small>A question for you</small></td><td>An agent asking permission before it takes an action. A cooperative integration waits for your answer.</td></tr>
             <tr><td><strong>Incident</strong><small>Something to look at</small></td><td>A record that something went wrong — an agent went quiet, or a task hit its budget.</td></tr>
             <tr><td><strong>Halted</strong><small>Stopped on purpose</small></td><td>A task or agent that has been stopped. A well-behaved integration checks this and stops acting.</td></tr>
           </tbody>
@@ -228,8 +228,8 @@
           <p>
             No, and it is worth being clear about that. Everything here is cooperative: an agent
             that never asks permission, or that ignores a halt, is not physically prevented from
-            acting. What you get is that well-behaved agents pause for you, and that every request
-            and every decision is recorded.
+            acting. Integrated agents can pause for you; requests and decisions made through
+            AgentOnCall are recorded, but actions taken outside it are not.
           </p>
         </div>
       </div>
