@@ -10,19 +10,19 @@ Licensed under the [MIT License](LICENSE).
 
 ## Screenshots
 
-These screens show a local demo workspace with fictional data.
+These screens show a fictional professional-services workspace. No real client data is used.
 
-**Workspace overview** — connected agents, recent tasks, pending approvals, and reported spend.
+**Workspace overview** — decisions awaiting review, agent status, work activity, and open incidents.
 
-![AgentOnCall workspace overview with recent tasks and an approval inbox](docs/images/overview.jpg)
+![AgentOnCall workspace oversight showing a pending document-review approval, work activity, and an open incident](docs/images/overview.jpg)
 
-**Approval review** — the proposed action and its context before an operator decides.
+**Approval review** — the proposed action, its effect, and matter context before an operator decides.
 
-![Pending staging deployment approval with action details and approve and reject controls](docs/images/approvals.jpg)
+![Pending client-document approval with action details, matter context, and approve and reject controls](docs/images/approvals.jpg)
 
 **Task activity** — progress, the approval pause, the operator decision, and completion.
 
-![Task activity log showing review, approval, and completion](docs/images/task-activity.jpg)
+![Task activity log showing document review, an approval pause, the operator decision, and completion](docs/images/task-activity.jpg)
 
 ## Quick start
 
