@@ -27,8 +27,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://agentoncall:agentoncall@127.0.0.1:5432/agentoncall
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
