@@ -8,6 +8,22 @@ To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issu
 
 Licensed under the [MIT License](LICENSE).
 
+## Screenshots
+
+These screens show a local demo workspace with fictional data.
+
+**Workspace overview** — connected agents, recent tasks, pending approvals, and reported spend.
+
+![AgentOnCall workspace overview with recent tasks and an approval inbox](docs/images/overview.jpg)
+
+**Approval review** — the proposed action and its context before an operator decides.
+
+![Pending staging deployment approval with action details and approve and reject controls](docs/images/approvals.jpg)
+
+**Task activity** — progress, the approval pause, the operator decision, and completion.
+
+![Task activity log showing review, approval, and completion](docs/images/task-activity.jpg)
+
 ## Quick start
 
 With Docker installed:
