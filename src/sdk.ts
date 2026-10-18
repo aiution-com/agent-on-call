@@ -16,6 +16,7 @@ export interface GuardParams<T> {
   action: () => Promise<T>;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  heartbeatIntervalMs?: number;
 }
 export class AgentGuard {
   public agentId: string | null = null;
@@ -61,7 +62,13 @@ export class AgentGuard {
           throw new Error('Workspace or task stopped.');
         }
         if(decision.status==='approved'&&current.status==='in_progress'){
-          const result=await params.action();
+          // The watchdog halts a task whose agent has missed its heartbeat for
+          // three minutes. A long approved action must keep checking in.
+          const heartbeat=setInterval(()=>{
+            void this.api(`/agents/${this.agentId}/status`,'PATCH',{status:'busy'}).catch(()=>{});
+          },Math.max(params.heartbeatIntervalMs||60000,1000));
+          let result:T;
+          try{result=await params.action();}finally{clearInterval(heartbeat);}
           await this.api(`/tasks/${taskId}/status`,'PATCH',{status:'done'});
           return {approved:true,result,approvalId:approval.id};
         }

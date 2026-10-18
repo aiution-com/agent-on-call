@@ -139,6 +139,18 @@ try{
    assert.equal(await inspectWorkspace(a.profile.org_id),0);
    assert.equal((await call('/tasks/'+limited.id)).data.status,'halted');
   });
+  await t.test('a worker that dies while awaiting approval is escalated',async()=>{
+   const waiting=(await call('/tasks','POST',{title:'Waiting task'})).data;
+   await machine(`/tasks/${waiting.id}/claim`,'POST',{agentId:agent.id});
+   await machine(`/tasks/${waiting.id}/status`,'PATCH',{status:'in_progress'});
+   assert.equal((await machine('/approvals','POST',{taskId:waiting.id,agentId:agent.id,type:'waiting_review',context:{action:'Wait'}})).status,201);
+   assert.equal((await machine(`/tasks/${waiting.id}`)).data.status,'paused');
+   await pool.query("UPDATE agents SET last_seen_at=now()-interval '5 minutes' WHERE id=$1",[agent.id]);
+   const {inspectWorkspace}=require('../dist/workspace-watchdog.js');
+   assert.equal(await inspectWorkspace(a.profile.org_id),1);
+   assert.equal((await call('/tasks/'+waiting.id)).data.status,'halted');
+   await pool.query("UPDATE agents SET status='idle',last_seen_at=now() WHERE id=$1",[agent.id]);
+  });
   await t.test('downloadable example connects, waits for operator approval, and completes',async()=>{
    const child=spawn(process.execPath,['public/assets/agent-example.mjs'],{env:{...process.env,AOC_API_URL:base,AOC_API_KEY:key.token},stdio:['ignore','pipe','pipe']});
    let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
@@ -189,12 +201,46 @@ try{
     assert.equal(agentRow.status,'halted');
    }finally{if(child.exitCode===null)child.kill();await call('/emergency/resume','POST',{});}
   });
+  await t.test('the SDK heartbeats while an approved action runs',async()=>{
+   const {AgentGuard}=require('../dist/sdk.js');
+   const guard=new AgentGuard({apiUrl:base,apiKey:key.token,agentName:'SDK heartbeat agent',agentType:'test'});
+   const actionStart=Date.now();
+   const running=guard.guard({type:'long_action',context:{action:'Sleep briefly'},pollIntervalMs:100,heartbeatIntervalMs:100,timeoutMs:15000,action:async()=>{await new Promise(r=>setTimeout(r,3000));return 'done';}});
+   let pending;
+   for(let i=0;i<60;i++){pending=(await call('/approvals')).data.find(a=>a.type==='long_action');if(pending)break;await new Promise(r=>setTimeout(r,100));}
+   assert.ok(pending,'The SDK must request approval');
+   assert.equal((await call(`/approvals/${pending.id}/decide`,'POST',{decision:'approved'})).status,200);
+   // Look while the approved action is still running. A completion update would
+   // otherwise set last_seen_at too, hiding a missing heartbeat.
+   await new Promise(r=>setTimeout(r,1500));
+   const agentRow=(await call('/agents')).data.find(row=>row.id===pending.agent_id);
+   assert.ok(new Date(agentRow.last_seen_at).getTime()>=actionStart+1000,'The SDK must update presence during the action');
+   const result=await running;
+   assert.equal(result.approved,true);
+   assert.equal(result.result,'done');
+   assert.equal((await call('/tasks/'+pending.task_id)).data.status,'done');
+  });
   await t.test('MCP connects over the scoped API without database credentials',async()=>{
    const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');
    const {StdioClientTransport}=await import('@modelcontextprotocol/sdk/client/stdio.js');
    const client=new Client({name:'mvp-check',version:'1.0.0'});
    const transport=new StdioClientTransport({command:process.execPath,args:['dist/mcp/server.js'],env:{PATH:process.env.PATH,AOC_API_URL:base,AOC_API_KEY:key.token}});
-   try{await client.connect(transport);const tools=await client.listTools();assert.equal(tools.tools.length,8);const result=await client.callTool({name:'register_agent',arguments:{name:'MCP test agent',type:'test'}});assert.ok(!result.isError);const record=JSON.parse(result.content[0].text);assert.equal(record.org_id,a.profile.org_id);}finally{await client.close();}
+   try{
+    await client.connect(transport);const tools=await client.listTools();assert.equal(tools.tools.length,8);
+    const result=await client.callTool({name:'register_agent',arguments:{name:'MCP test agent',type:'test'}});assert.ok(!result.isError);
+    const record=JSON.parse(result.content[0].text);assert.equal(record.org_id,a.profile.org_id);
+    const mcpTask=(await call('/tasks','POST',{title:'MCP stop check'})).data;
+    await machine(`/tasks/${mcpTask.id}/claim`,'POST',{agentId:record.id});
+    await machine(`/tasks/${mcpTask.id}/status`,'PATCH',{status:'in_progress'});
+    const mcpApproval=await machine('/approvals','POST',{taskId:mcpTask.id,agentId:record.id,type:'mcp_check',context:{action:'Check'}});
+    assert.equal((await call('/emergency/stop','POST',{})).status,200);
+    // The tool may be called with only approval_id; the stop-ack path must not
+    // require an agent id that was never sent.
+    const checked=await client.callTool({name:'check_approval_status',arguments:{approval_id:mcpApproval.data.id}});
+    assert.ok(!checked.isError,'check_approval_status must work during a stop without agent_id');
+    assert.equal(JSON.parse(checked.content[0].text).may_execute,false);
+    assert.equal((await call('/emergency/resume','POST',{})).status,200);
+   }finally{await client.close();}
   });
   await t.test('operators can change a password and recover an account from the host',async()=>{
    const wrong=await request('/api/auth/password',{cookie:a.cookie,method:'POST',body:{currentPassword:'not-the-password',newPassword:'replacement-password-2026'}});
