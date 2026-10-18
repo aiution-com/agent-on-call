@@ -56,6 +56,14 @@ try{
    assert.equal(decided.some(b=>b.type==='actions'),false);
    assert.match(JSON.stringify(decided),/Approved by Alice/);
    assert.match(JSON.stringify(buildIncidentBlocks({id:'x',title:'Budget limit reached',description:'Spend reached the limit.',severity:'high'},{name:'My workspace'})),/\*Budget limit reached\*/);
+   // Agent-controlled text must not become Slack mentions or links.
+   const hostile=buildApprovalBlocks({...approval,type:'<!channel> deploy'},{title:'<!channel> release'},{name:'<https://evil.test|Click>',type:'test'});
+   const hostileIncident=buildIncidentBlocks({id:'x',title:'<!channel> incident',description:'<https://evil.test|Click>',severity:'high'},{name:'My <workspace>'});
+   for(const blocks of [hostile,hostileIncident]){
+     assert.doesNotMatch(JSON.stringify(blocks),/<!channel>/);
+     assert.doesNotMatch(JSON.stringify(blocks),/<https:\/\/evil\.test/);
+     assert.match(JSON.stringify(blocks),/&lt;!channel&gt;/);
+   }
    assert.match(JSON.stringify(buildHaltedBlocks({stopped_by:'Alice',halted_tasks:2,agents_notified:1,agents_acknowledged:0},{name:'My workspace'})),/2 task\(s\) halted/);
    assert.match(JSON.stringify(buildHaltedBlocks({stopped_by:'Alice',halted_tasks:2,agents_notified:1,agents_acknowledged:0},{name:'My workspace'})),/0 of 1 acknowledged/);
    assert.match(JSON.stringify(buildTestBlocks({name:'My workspace'})),/Test alert/);
