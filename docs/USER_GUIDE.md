@@ -130,9 +130,11 @@ task that was halted has to be restarted individually.
 ## Questions people actually ask
 
 **I forgot my password. How do I reset it?**
-You cannot, yet. There is no password reset, and no email is sent from this
-product, so there is no self-service way back into an account. If you are locked
-out, whoever runs your AgentOnCall instance has to help you directly.
+There is no self-service reset and no email. If you are still signed in, use
+**Settings → Password**; that signs out your other sessions. If you are locked
+out, whoever runs your AgentOnCall instance can set a new password from the host
+with `scripts/reset-password.mjs` (see `docs/DEPLOY.md`). That also signs out
+every session.
 
 **Can I invite a colleague?**
 Not yet. One workspace currently has one operator, so there is no way to add a
@@ -167,8 +169,9 @@ decisions made through AgentOnCall are recorded; actions outside it are not.
 
 Stated plainly so you are not surprised later:
 
-- No password reset, and no email of any kind — no verification, no notifications
-  by mail.
+- No self-service password reset and no email of any kind — no verification, no
+  notifications by mail. An operator can change their password while signed in,
+  and a host operator can recover a locked-out account with the reset script.
 - One operator per workspace; no roles, no invitations.
 - Enforcement is cooperative. An agent that ignores the API is not stopped by it.
 - Alerts are best effort, with no retries and no delivery log.

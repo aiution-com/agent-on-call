@@ -117,6 +117,21 @@ authRouter.post('/login',rateLimit,async(req,res,next)=>{
     res.json({ok:true});
   } catch(e){next(e);}
 });
+authRouter.post('/password',rateLimit,requireUser,requireSession,async(req,res,next)=>{
+  try {
+    const user=identity(res), current=req.body.currentPassword, replacement=req.body.newPassword;
+    if(typeof current!=='string'||typeof replacement!=='string') return res.status(400).json({error:'Enter your current and new password.'});
+    if(replacement.length<12||replacement.length>128) return res.status(400).json({error:'Use a password between 12 and 128 characters.'});
+    const users=await query('SELECT password_hash FROM users WHERE id=$1',[user.id]);
+    const valid=await checkPassword(current,users[0]?.password_hash||`${'0'.repeat(32)}:${'0'.repeat(128)}`);
+    if(!users[0]||!valid) return res.status(401).json({error:'Your current password is incorrect.'});
+    const keep=digest(sessionToken(req)||'');
+    await query('UPDATE users SET password_hash=$1 WHERE id=$2',[await hashPassword(replacement),user.id]);
+    // A password change signs out every other session but keeps the one that made it.
+    await query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2',[user.id,keep]);
+    res.json({ok:true});
+  } catch(e){next(e);}
+});
 authRouter.post('/logout',requireUser,requireSession,async(req,res)=>{
   await query('DELETE FROM sessions WHERE token_hash=$1',[digest(sessionToken(req)||'')]);
   res.clearCookie(cookieName,{path:'/',httpOnly:true,secure:req.secure,sameSite:'lax'});
