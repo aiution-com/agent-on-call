@@ -5,6 +5,11 @@ export const pool = new Pool({
   connectionString: databaseUrl,
 });
 
+// An idle client can be closed by the server, a pooler, or the network. The pg
+// pool emits that as an error event; without a listener Node treats it as fatal
+// and exits the process, dropping every in-flight request.
+pool.on('error', error => console.error('[db] idle client error:', error.message));
+
 export async function query(text: string, params?: any[]) {
   const result = await pool.query(text, params);
   return result.rows;

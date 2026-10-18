@@ -8,6 +8,7 @@
 // it inside the compose database container. The fallback matters: the common
 // case is a deployment where Postgres lives in a container and the host has no
 // PostgreSQL client tools installed at all.
+import 'dotenv/config';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -62,7 +63,8 @@ if (!dump || dump.length === 0) {
 }
 
 mkdirSync(path.dirname(output), { recursive: true });
-writeFileSync(output, dump);
+// The dump holds password, session, API-key and alert-signing hashes.
+writeFileSync(output, dump, { mode: 0o600 });
 
 const kb = (statSync(output).size / 1024).toFixed(1);
 console.log(`wrote ${output} (${kb} KB) via ${how}`);

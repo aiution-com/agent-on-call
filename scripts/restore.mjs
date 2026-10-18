@@ -10,9 +10,11 @@
 //
 // Expect the application to be stopped while this runs. pg_restore needs to
 // drop tables that the app may be holding open.
+import 'dotenv/config';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { onlyMissingObjects } from './restore-status.mjs';
 
 const args = process.argv.slice(2);
 const file = args.find(a => !a.startsWith('--'));
@@ -75,9 +77,7 @@ if (has('pg_restore') && process.env.DATABASE_URL) {
 // database. Only the stderr is worth reading, so show it rather than guess.
 if (result.status !== 0) {
   const stderr = (result.stderr || '').toString().trim();
-  const onlyMissingObjects = /does not exist|errors ignored on restore/i.test(stderr)
-    && !/fatal|connection|could not/i.test(stderr);
-  if (onlyMissingObjects) {
+  if (onlyMissingObjects(stderr)) {
     console.log(`restored ${source} via ${how} (dropping objects that did not exist yet)`);
     process.exit(0);
   }
