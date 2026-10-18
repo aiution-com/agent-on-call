@@ -19,7 +19,7 @@ try {
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
 
-    for (const name of ['001_initial_schema.sql', '002_task_logs.sql', '003_accounts.sql', '004_alert_channels.sql']) {
+    for (const name of ['001_initial_schema.sql', '002_task_logs.sql', '003_accounts.sql', '004_alert_channels.sql', '005_stop_acknowledgment.sql']) {
       const existing = await client.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
       if (existing.rowCount) {
         console.log(`skip ${name} (already applied)`);

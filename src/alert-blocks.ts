@@ -82,6 +82,9 @@ export function buildIncidentBlocks(incident: any, workspace: any): any[] {
 }
 
 export function buildHaltedBlocks(summary: any, workspace: any): any[] {
+  const stopLine = summary.agents_notified
+    ? `Stop signal sent to ${summary.agents_notified} active agent(s); ${summary.agents_acknowledged} of ${summary.agents_notified} acknowledged.`
+    : 'No active agents were running at the time.';
   return [
     { type: 'header', text: { type: 'plain_text', text: '⛔ Workspace stopped' } },
     {
@@ -96,7 +99,7 @@ export function buildHaltedBlocks(summary: any, workspace: any): any[] {
       elements: [
         {
           type: 'mrkdwn',
-          text: `${summary.halted_tasks} task(s) and ${summary.halted_agents} agent(s) marked halted. This is a cooperative signal and does not terminate external processes.`,
+          text: `${summary.halted_tasks} task(s) halted. ${stopLine} Follow acknowledgments in the dashboard. This is a cooperative signal and does not terminate external processes.`,
         },
       ],
     },

@@ -231,6 +231,7 @@ details summary:hover{color:var(--ink)}
 
 /* System messages */
 .banner{border:0;border-left:3px solid var(--amber);border-radius:0;background:#f1e6cf;color:#5f4214}
+td small.stop-pending{color:var(--red);font-weight:600}
 .error{border:0;border-left:2px solid var(--red);border-radius:0;background:#f3e2df;color:var(--red)}
 .toast{border-radius:2px;background:var(--navy);color:#f3efe6;border-left:2px solid var(--accent);font-size:12px}
 .toast.error{background:var(--red);border-left-color:#ecc7c2}

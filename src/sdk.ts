@@ -36,6 +36,11 @@ export class AgentGuard {
     const agent=await this.api('/agents','POST',{name:this.config.agentName,type:this.config.agentType||'sdk-worker',capabilities:{sdk:'agentoncall-v2'}});
     this.agentId=agent.id;return agent.id;
   }
+  /** Best effort: tell the workspace this worker saw the stop before it exits. */
+  private async acknowledgeStop():Promise<void>{
+    if(!this.agentId)return;
+    try{if((await this.api('/emergency/status')).isHalted)await this.api(`/agents/${this.agentId}/stop-ack`,'POST');}catch{}
+  }
   async guard<T>(params:GuardParams<T>):Promise<{approved:boolean;result?:T;reason?:string;approvalId:string}>{
     await this.init();
     let taskId=params.taskId;
@@ -51,7 +56,10 @@ export class AgentGuard {
         await new Promise(resolve=>setTimeout(resolve,Math.max(params.pollIntervalMs||2000,100)));
         const [decision,current,emergency]=await Promise.all([this.api(`/approvals/${approval.id}`),this.api(`/tasks/${taskId}`),this.api('/emergency/status')]);
         if(decision.status==='rejected')return {approved:false,reason:decision.decision_reason||'Rejected by operator',approvalId:approval.id};
-        if(emergency.isHalted||['halted','failed'].includes(current.status))throw new Error('Workspace or task stopped.');
+        if(emergency.isHalted||['halted','failed'].includes(current.status)){
+          if(emergency.isHalted)await this.api(`/agents/${this.agentId}/stop-ack`,'POST').catch(()=>{});
+          throw new Error('Workspace or task stopped.');
+        }
         if(decision.status==='approved'&&current.status==='in_progress'){
           const result=await params.action();
           await this.api(`/tasks/${taskId}/status`,'PATCH',{status:'done'});
@@ -61,6 +69,7 @@ export class AgentGuard {
       }
       throw new Error('Approval timed out.');
     }catch(error){
+      await this.acknowledgeStop();
       const task=await this.api(`/tasks/${taskId}`).catch(()=>null);
       if(task&&['claimed','in_progress','paused'].includes(task.status))await this.api(`/tasks/${taskId}/status`,'PATCH',{status:'failed'}).catch(()=>{});
       throw error;

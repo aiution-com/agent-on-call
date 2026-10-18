@@ -1,6 +1,37 @@
 import { query, transaction } from './db';
 import { notify } from './alerts';
 
+/** The stop request is recorded; a worker that never checks in is an incident. */
+export const STOP_ACK_INCIDENT = 'Agent has not acknowledged workspace stop';
+const STOP_ACK_GRACE_SECONDS = 120;
+
+/**
+ * Expected acknowledgments are agents that had active work when the stop was
+ * requested. A worker that never checks in may still be running an external
+ * action, so an unacknowledged stop is escalated exactly once per agent.
+ */
+export async function inspectStopAcknowledgments(orgId: string, graceSeconds = STOP_ACK_GRACE_SECONDS) {
+  const incidents: string[] = [];
+  const count = await transaction(async client => {
+    const workspace = (await client.query('SELECT halted, stop_requested_at FROM workspaces WHERE id=$1 FOR SHARE',[orgId])).rows[0];
+    if (!workspace?.halted || !workspace.stop_requested_at) return 0;
+    const requestedAt = new Date(workspace.stop_requested_at).getTime();
+    if (!Number.isFinite(requestedAt) || Date.now() - requestedAt < graceSeconds * 1000) return 0;
+    const pending = await client.query(`SELECT id FROM agents a
+      WHERE a.org_id=$1 AND a.stop_requested_at IS NOT NULL AND a.stop_acknowledged_at IS NULL
+      AND COALESCE(a.capabilities->>'sample','false')<>'true'
+      AND NOT EXISTS(SELECT 1 FROM incidents i WHERE i.org_id=$1 AND i.agent_id=a.id AND i.title=$2 AND i.status='open')
+      FOR UPDATE`,[orgId,STOP_ACK_INCIDENT]);
+    for (const agent of pending.rows) {
+      const incident = await client.query("INSERT INTO incidents(org_id,agent_id,title,description,severity) VALUES($1,$2,$3,$4,'high') RETURNING id",[orgId,agent.id,STOP_ACK_INCIDENT,'The workspace was stopped but this agent has not checked in since. It may still be running an external action.']);
+      incidents.push(incident.rows[0].id);
+    }
+    return pending.rowCount;
+  });
+  for (const incidentId of incidents) void notify(orgId,{type:'incident_created',incidentId});
+  return count;
+}
+
 /** Marks unresponsive or over-budget tasks halted; adapters must enforce the stop. */
 export async function inspectWorkspace(orgId: string) {
   const result = await transaction(async client => {
@@ -30,8 +61,8 @@ export function startWorkspaceWatchdog(){
     if(running)return;
     running=true;
     try{
-      const orgs=await query("SELECT DISTINCT w.id FROM workspaces w JOIN tasks t ON t.org_id=w.id WHERE t.status IN ('claimed','in_progress')");
-      for(const org of orgs)await inspectWorkspace(org.id);
+      const orgs=await query("SELECT DISTINCT w.id FROM workspaces w LEFT JOIN tasks t ON t.org_id=w.id WHERE w.halted OR t.status IN ('claimed','in_progress')");
+      for(const org of orgs){await inspectStopAcknowledgments(org.id);await inspectWorkspace(org.id);}
       if(cycles++%180===0){await query('DELETE FROM sessions WHERE expires_at<now()');await query('DELETE FROM auth_limits WHERE expires_at<now()');}
     }catch(error){console.error('[workspace watchdog]',error instanceof Error?error.message:'Cycle failed');}
     finally{running=false;}

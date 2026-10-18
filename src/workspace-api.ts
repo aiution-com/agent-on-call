@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { query, transaction } from './db';
 import { identity, requireSession, digest, textField } from './auth';
 import { listChannels, saveChannel, removeChannel, sendTest, notify } from './alerts';
+import { STOP_ACK_INCIDENT } from './workspace-watchdog';
 
 export const workspaceApi = Router();
 const fail = (message:string,status=400): never => { throw Object.assign(new Error(message),{status}); };
@@ -62,6 +63,21 @@ workspaceApi.patch('/agents/:id/status',async(req,res)=>{
   const health=req.body.healthScore;
   if(health!==undefined&&(typeof health!=='number'||!Number.isFinite(health)||health<0||health>100))fail('Health must be between 0 and 100.');
   res.json(found(await query("UPDATE agents SET status=CASE WHEN (SELECT halted FROM workspaces WHERE id=$2) THEN 'halted' ELSE $3 END,health_score=COALESCE($4,health_score),last_seen_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[uuid(req.params.id),identity(res).org_id,req.body.status,health])));
+});
+// A stop is only confirmed when a worker says it saw the stop. Any authenticated
+// agent call could be made by a worker that ignores the answer, so acknowledgment
+// is a separate, explicit signal.
+workspaceApi.post('/agents/:id/stop-ack',async(req,res)=>{
+  const u=identity(res);
+  if(u.mode!=='key')fail('Only an agent can acknowledge a stop.',403);
+  const agent=await transaction(async c=>{
+    const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR SHARE',[u.org_id])).rows);
+    if(!w.halted)fail('Workspace is not stopped.',409);
+    const updated=found((await c.query("UPDATE agents SET stop_acknowledged_at=COALESCE(stop_acknowledged_at,now()),status='halted',last_seen_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[uuid(req.params.id),u.org_id])).rows);
+    await c.query("UPDATE incidents SET status='resolved',resolved_at=now() WHERE org_id=$1 AND agent_id=$2 AND title=$3 AND status='open'",[u.org_id,updated.id,STOP_ACK_INCIDENT]);
+    return updated;
+  });
+  res.json(agent);
 });
 workspaceApi.post('/tasks',async(req,res)=>{
   const b=req.body, timeout=b.timeoutSeconds??3600;
@@ -144,22 +160,29 @@ workspaceApi.post('/incidents',async(req,res)=>{
 });
 workspaceApi.post('/incidents/:id/resolve',requireSession,async(req,res)=>res.json(found(await query("UPDATE incidents SET status='resolved',resolved_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[uuid(req.params.id),identity(res).org_id]))));
 workspaceApi.post('/policies',requireSession,async(req,res)=>res.status(201).json(found(await query('INSERT INTO policies(org_id,rule_type,rule_value,agent_type) VALUES($1,$2,$3,$4) RETURNING *',[identity(res).org_id,textField(req.body.ruleType,'Rule type',80),JSON.stringify(object(req.body.ruleValue)),req.body.agentType?textField(req.body.agentType,'Agent type',80):null]))));
-workspaceApi.get('/emergency/status',async(req,res)=>res.json({isHalted:found(await query('SELECT halted FROM workspaces WHERE id=$1',[identity(res).org_id])).halted}));
+workspaceApi.get('/emergency/status',async(req,res)=>{
+  const w=found(await query('SELECT halted,stop_requested_at FROM workspaces WHERE id=$1',[identity(res).org_id]));
+  res.json({isHalted:w.halted,stopRequestedAt:w.stop_requested_at});
+});
 workspaceApi.post('/emergency/stop',requireSession,async(req,res)=>{
-  const u=identity(res);const stopped=await transaction(async c=>{
-    const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR UPDATE',[u.org_id])).rows);
-    if(w.halted)return;
-    await c.query('UPDATE workspaces SET halted=true WHERE id=$1',[u.org_id]);
+  const u=identity(res);let stopRequestedAt:Date|null=null;
+  const stopped=await transaction(async c=>{
+    const w=found((await c.query('SELECT halted,stop_requested_at FROM workspaces WHERE id=$1 FOR UPDATE',[u.org_id])).rows);
+    if(w.halted){stopRequestedAt=w.stop_requested_at;return;}
+    await c.query('UPDATE agents SET stop_requested_at=NULL,stop_acknowledged_at=NULL WHERE org_id=$1',[u.org_id]);
+    stopRequestedAt=(await c.query('UPDATE workspaces SET halted=true,stop_requested_at=now() WHERE id=$1 RETURNING stop_requested_at',[u.org_id])).rows[0].stop_requested_at;
+    // Only workers that had active work are expected to acknowledge. Agents that
+    // already exited are not made to look unresponsive.
+    await c.query("UPDATE agents a SET stop_requested_at=$2 WHERE a.org_id=$1 AND COALESCE(a.capabilities->>'sample','false')<>'true' AND EXISTS(SELECT 1 FROM tasks t WHERE t.agent_id=a.id AND t.status IN ('claimed','in_progress','paused'))",[u.org_id,stopRequestedAt]);
     await c.query("UPDATE tasks SET status='halted' WHERE org_id=$1 AND status IN ('claimed','in_progress','paused')",[u.org_id]);
-    await c.query("UPDATE agents SET status='halted' WHERE org_id=$1",[u.org_id]);
-    return (await c.query("INSERT INTO incidents(org_id,title,description,severity) VALUES($1,'EMERGENCY STOP: Workspace paused',$2,'critical') RETURNING id",[u.org_id,`Stopped by ${u.name}. Agent integrations must honor the stopped status before their next action.`])).rows[0];
-  });if(stopped)void notify(u.org_id,{type:'incident_created',incidentId:stopped.id});if(stopped)void notify(u.org_id,{type:'workspace_halted',stoppedBy:u.name});res.json({ok:true});
+    return (await c.query("INSERT INTO incidents(org_id,title,description,severity) VALUES($1,'EMERGENCY STOP: Workspace paused',$2,'critical') RETURNING id",[u.org_id,`Stopped by ${u.name}. Agent integrations must acknowledge the stop when they see it and must not act before that.`])).rows[0];
+  });if(stopped)void notify(u.org_id,{type:'incident_created',incidentId:stopped.id});if(stopped)void notify(u.org_id,{type:'workspace_halted',stoppedBy:u.name});res.json({ok:true,stopRequestedAt});
 });
 workspaceApi.post('/emergency/resume',requireSession,async(req,res)=>{
   const org=identity(res).org_id;await transaction(async c=>{
-    await c.query('UPDATE workspaces SET halted=false WHERE id=$1',[org]);
-    await c.query("UPDATE agents SET status='idle' WHERE org_id=$1 AND status='halted'",[org]);
-    await c.query("UPDATE incidents SET status='resolved',resolved_at=now() WHERE org_id=$1 AND title='EMERGENCY STOP: Workspace paused' AND status='open'",[org]);
+    await c.query('UPDATE workspaces SET halted=false,stop_requested_at=NULL WHERE id=$1',[org]);
+    await c.query("UPDATE agents SET status=CASE WHEN status='halted' THEN 'idle' ELSE status END,stop_requested_at=NULL,stop_acknowledged_at=NULL WHERE org_id=$1",[org]);
+    await c.query("UPDATE incidents SET status='resolved',resolved_at=now() WHERE org_id=$1 AND status='open' AND title IN ('EMERGENCY STOP: Workspace paused',$2)",[org,STOP_ACK_INCIDENT]);
   });res.json({ok:true,message:'Workspace reopened. Restart halted tasks individually.'});
 });
 workspaceApi.post('/onboarding/sample',requireSession,async(req,res)=>{

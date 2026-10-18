@@ -157,6 +157,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const approval = await api(`/approvals/${id(a.approval_id)}`);
         const task = await api(`/tasks/${approval.task_id}`);
         const emergency = await api('/emergency/status');
+        if(emergency.isHalted)await api(`/agents/${id(a.agent_id)}/stop-ack`,'POST').catch(()=>{});
         result = {...approval,task_status:task.status,may_execute:approval.status==='approved'&&task.status==='in_progress'&&!emergency.isHalted}; break;
       }
       case 'complete_task':

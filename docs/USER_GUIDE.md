@@ -116,6 +116,12 @@ forgery target if it is not constrained.
 New work cannot be claimed, active tasks are marked halted, and an incident is
 recorded.
 
+The dashboard then distinguishes a **requested** stop from an **acknowledged**
+one. Workers with active tasks call back when they see the stop; the banner
+shows how many have acknowledged, and the Agents page shows each one. A worker
+that never checks in is raised as an incident after two minutes, because it may
+still be inside an external action.
+
 Reopening is a separate, deliberate step. Nothing resumes on its own, and each
 task that was halted has to be restarted individually.
 
