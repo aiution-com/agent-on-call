@@ -37,7 +37,7 @@ export async function inspectWorkspace(orgId: string) {
   const result = await transaction(async client => {
     await client.query('SELECT id FROM workspaces WHERE id=$1 FOR SHARE',[orgId]);
     const candidates=await client.query(`SELECT t.*, a.last_seen_at FROM tasks t JOIN agents a ON a.id=t.agent_id
-      WHERE t.org_id=$1 AND t.status IN ('claimed','in_progress')
+      WHERE t.org_id=$1 AND t.status IN ('claimed','in_progress','paused')
       AND ((t.budget_usd IS NOT NULL AND t.spent_usd>=t.budget_usd)
         OR a.last_seen_at<now()-interval '3 minutes') FOR UPDATE OF t`,[orgId]);
     const incidents: string[] = [];
