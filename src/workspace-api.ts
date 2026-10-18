@@ -93,6 +93,21 @@ workspaceApi.post('/agents/:id/stop-ack',async(req,res)=>{
   });
   res.json(agent);
 });
+// A stop is only confirmed when a worker says it saw the stop. Any authenticated
+// agent call could be made by a worker that ignores the answer, so acknowledgment
+// is a separate, explicit signal.
+workspaceApi.post('/agents/:id/stop-ack',async(req,res)=>{
+  const u=identity(res);
+  if(u.mode!=='key')fail('Only an agent can acknowledge a stop.',403);
+  const agent=await transaction(async c=>{
+    const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR SHARE',[u.org_id])).rows);
+    if(!w.halted)fail('Workspace is not stopped.',409);
+    const updated=found((await c.query("UPDATE agents SET stop_acknowledged_at=COALESCE(stop_acknowledged_at,now()),status='halted',last_seen_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[uuid(req.params.id),u.org_id])).rows);
+    await c.query("UPDATE incidents SET status='resolved',resolved_at=now() WHERE org_id=$1 AND agent_id=$2 AND title=$3 AND status='open'",[u.org_id,updated.id,STOP_ACK_INCIDENT]);
+    return updated;
+  });
+  res.json(agent);
+});
 workspaceApi.post('/tasks',async(req,res)=>{
   const b=req.body, timeout=b.timeoutSeconds??3600;
   if(b.source==='sample')fail('The sample source is reserved for onboarding.');
