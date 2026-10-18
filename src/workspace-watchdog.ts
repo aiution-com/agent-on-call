@@ -20,7 +20,7 @@ export async function inspectStopAcknowledgments(orgId: string, graceSeconds = S
     const pending = await client.query(`SELECT id FROM agents a
       WHERE a.org_id=$1 AND a.stop_requested_at IS NOT NULL AND a.stop_acknowledged_at IS NULL
       AND COALESCE(a.capabilities->>'sample','false')<>'true'
-      AND NOT EXISTS(SELECT 1 FROM incidents i WHERE i.org_id=$1 AND i.agent_id=a.id AND i.title=$2 AND i.status='open')
+      AND NOT EXISTS(SELECT 1 FROM incidents i WHERE i.org_id=$1 AND i.agent_id=a.id AND i.title=$2 AND i.created_at>=a.stop_requested_at)
       FOR UPDATE`,[orgId,STOP_ACK_INCIDENT]);
     for (const agent of pending.rows) {
       const incident = await client.query("INSERT INTO incidents(org_id,agent_id,title,description,severity) VALUES($1,$2,$3,$4,'high') RETURNING id",[orgId,agent.id,STOP_ACK_INCIDENT,'The workspace was stopped but this agent has not checked in since. It may still be running an external action.']);

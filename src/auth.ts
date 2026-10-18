@@ -6,7 +6,7 @@ import { pool, query } from './db';
 const scrypt = promisify(scryptCallback);
 const cookieName = 'aoc_session';
 export const digest = (value: string) => createHash('sha256').update(value).digest('hex');
-export interface Identity { id: string; org_id: string; email: string; name: string; workspace_name: string; mode: 'session' | 'key'; }
+export interface Identity { id: string; org_id: string; email: string; name: string; workspace_name: string; mode: 'session' | 'key'; key_id?: string | null; }
 export const identity = (res: Response): Identity => res.locals.identity;
 export function textField(value: unknown, label: string, max = 120): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw Object.assign(new Error(`${label} is required (maximum ${max} characters).`), { status: 400 });
@@ -33,9 +33,9 @@ export async function loadIdentity(req: Request, res: Response, next: NextFuncti
     const session = sessionToken(req);
     const fields = 'u.id, u.org_id, u.email, u.name, w.name AS workspace_name';
     let rows: any[] = [];
-    if (bearer) rows = await query(`SELECT ${fields} FROM api_keys k JOIN users u ON u.id=k.user_id JOIN workspaces w ON w.id=k.org_id WHERE k.token_hash=$1 AND k.revoked_at IS NULL`, [digest(bearer)]);
+    if (bearer) rows = await query(`SELECT ${fields}, k.id AS key_id FROM api_keys k JOIN users u ON u.id=k.user_id JOIN workspaces w ON w.id=k.org_id WHERE k.token_hash=$1 AND k.revoked_at IS NULL`, [digest(bearer)]);
     else if (session && session.length < 200) rows = await query(`SELECT ${fields} FROM sessions s JOIN users u ON u.id=s.user_id JOIN workspaces w ON w.id=u.org_id WHERE s.token_hash=$1 AND s.expires_at > now()`, [digest(session)]);
-    if (rows[0]) res.locals.identity = { ...rows[0], mode: bearer ? 'key' : 'session' };
+    if (rows[0]) res.locals.identity = { ...rows[0], mode: bearer ? 'key' : 'session', key_id: bearer ? rows[0].key_id : null };
     next();
   } catch (error) { next(error); }
 }

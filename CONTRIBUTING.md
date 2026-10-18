@@ -51,9 +51,10 @@ types without emitting files.
 ## Public API and security notes
 
 The supported public API is mounted in `src/index.ts` and implemented in
-`src/workspace-api.ts`. Approval and stop signals rely on connected agents
-cooperating with the API. Do not describe them as a sandbox or a guarantee that
-unintegrated agents cannot act.
+`src/workspace-api.ts`. Agent keys are bound to the agents they register; a key
+cannot act as another key's agent. Approval and stop signals rely on connected
+agents cooperating with the API. Do not describe them as a sandbox or a
+guarantee that unintegrated agents cannot act.
 
 Report vulnerabilities privately using [SECURITY.md](SECURITY.md), rather than
 posting exploit details in a public issue.

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
-import { query, transaction } from './db';
+import { query, transaction, pool } from './db';
 import { identity, requireSession, digest, textField } from './auth';
 import { listChannels, saveChannel, removeChannel, sendTest, notify } from './alerts';
 import { STOP_ACK_INCIDENT } from './workspace-watchdog';
@@ -11,6 +11,17 @@ const uuid = (v:unknown):string => typeof v==='string' && /^[0-9a-f]{8}-[0-9a-f]
 const amount = (v:unknown,optional=false):number|null => v==null && optional ? null : typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=100000000 ? v : fail('Amount must be a non-negative number.');
 const object = (v:unknown):object => v===undefined ? {} : v!==null&&typeof v==='object'&&!Array.isArray(v) ? v : fail('Expected an object.');
 const found = (rows:any[]) => rows[0] || fail('Record not found.',404);
+type Queryable = { query:(text:string,params?:any[])=>Promise<{rows:any[]}> };
+/**
+ * An agent key may only act as the agents it registered. Agents created before
+ * key binding existed have a NULL owner and stay usable by any key in their
+ * workspace, so existing deployments keep working.
+ */
+async function scopedAgent(c:Queryable,orgId:string,agentId:string,keyId?:string|null){
+  const agent=found((await c.query('SELECT id,created_by_key_id FROM agents WHERE id=$1 AND org_id=$2',[agentId,orgId])).rows);
+  if(keyId && agent.created_by_key_id && agent.created_by_key_id!==keyId) fail('This agent belongs to another key.',403);
+  return agent;
+}
 const tables:Record<string,string>={agents:'agents',tasks:'tasks',incidents:'incidents',policies:'policies'};
 workspaceApi.use((req,res,next)=>{
   const org=identity(res).org_id;
@@ -56,13 +67,31 @@ for(const [path,table] of Object.entries(tables)) {
 }
 workspaceApi.post('/agents',async(req,res)=>{
   const u=identity(res), name=textField(req.body.name,'Agent name',80), type=textField(req.body.type||'worker','Agent type',80);
-  res.status(201).json(found(await query("INSERT INTO agents(org_id,name,type,owner_email,capabilities,status,last_seen_at) VALUES($1,$2,$3,$4,$5,'idle',now()) RETURNING *",[u.org_id,name,type,u.email,JSON.stringify({...object(req.body.capabilities),sample:false})])));
+  res.status(201).json(found(await query("INSERT INTO agents(org_id,name,type,owner_email,capabilities,status,last_seen_at,created_by_key_id) VALUES($1,$2,$3,$4,$5,'idle',now(),$6) RETURNING *",[u.org_id,name,type,u.email,JSON.stringify({...object(req.body.capabilities),sample:false}),u.key_id||null])));
 });
 workspaceApi.patch('/agents/:id/status',async(req,res)=>{
   if(!['idle','busy','blocked','halted','stuck'].includes(req.body.status)) fail('Invalid agent status.');
   const health=req.body.healthScore;
   if(health!==undefined&&(typeof health!=='number'||!Number.isFinite(health)||health<0||health>100))fail('Health must be between 0 and 100.');
-  res.json(found(await query("UPDATE agents SET status=CASE WHEN (SELECT halted FROM workspaces WHERE id=$2) THEN 'halted' ELSE $3 END,health_score=COALESCE($4,health_score),last_seen_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[uuid(req.params.id),identity(res).org_id,req.body.status,health])));
+  const u=identity(res),id=uuid(req.params.id);
+  await scopedAgent(pool,u.org_id,id,u.key_id);
+  res.json(found(await query("UPDATE agents SET status=CASE WHEN (SELECT halted FROM workspaces WHERE id=$2) THEN 'halted' ELSE $3 END,health_score=COALESCE($4,health_score),last_seen_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[id,u.org_id,req.body.status,health])));
+});
+// A stop is only confirmed when a worker says it saw the stop. Any authenticated
+// agent call could be made by a worker that ignores the answer, so acknowledgment
+// is a separate, explicit signal.
+workspaceApi.post('/agents/:id/stop-ack',async(req,res)=>{
+  const u=identity(res),id=uuid(req.params.id);
+  if(u.mode!=='key')fail('Only an agent can acknowledge a stop.',403);
+  const agent=await transaction(async c=>{
+    const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR SHARE',[u.org_id])).rows);
+    if(!w.halted)fail('Workspace is not stopped.',409);
+    await scopedAgent(c,u.org_id,id,u.key_id);
+    const updated=found((await c.query("UPDATE agents SET stop_acknowledged_at=COALESCE(stop_acknowledged_at,now()),status='halted',last_seen_at=now() WHERE id=$1 AND org_id=$2 RETURNING *",[id,u.org_id])).rows);
+    await c.query("UPDATE incidents SET status='resolved',resolved_at=now() WHERE org_id=$1 AND agent_id=$2 AND title=$3 AND status='open'",[u.org_id,updated.id,STOP_ACK_INCIDENT]);
+    return updated;
+  });
+  res.json(agent);
 });
 // A stop is only confirmed when a worker says it saw the stop. Any authenticated
 // agent call could be made by a worker that ignores the answer, so acknowledgment
@@ -86,11 +115,11 @@ workspaceApi.post('/tasks',async(req,res)=>{
   res.status(201).json(found(await query("INSERT INTO tasks(org_id,title,description,source,status,budget_usd,permissions,required_approvals,timeout_seconds) VALUES($1,$2,$3,$4,'queued',$5,$6,'[]',$7) RETURNING *",[identity(res).org_id,textField(b.title,'Task title',200),typeof b.description==='string'?b.description.slice(0,5000):'',textField(b.source||'dashboard','Source',40),amount(b.budgetUsd,true),JSON.stringify(object(b.permissions)),timeout])));
 });
 workspaceApi.post('/tasks/:id/claim',async(req,res)=>{
-  const org=identity(res).org_id,id=uuid(req.params.id),agentId=uuid(req.body.agentId);
+  const u=identity(res),org=u.org_id,id=uuid(req.params.id),agentId=uuid(req.body.agentId);
   const task=await transaction(async c=>{
     const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR SHARE',[org])).rows);
     if(w.halted)fail('Workspace is stopped.',409);
-    found((await c.query('SELECT id FROM agents WHERE id=$1 AND org_id=$2',[agentId,org])).rows);
+    await scopedAgent(c,org,agentId,u.key_id);
     const rows=(await c.query("UPDATE tasks SET agent_id=$3,status='claimed',claimed_at=now() WHERE id=$1 AND org_id=$2 AND status='queued' RETURNING *",[id,org,agentId])).rows;
     if(!rows[0])fail('Task is unavailable for claiming.',409);
     await c.query("UPDATE agents SET status='busy',last_seen_at=now() WHERE id=$1",[agentId]);
@@ -103,6 +132,7 @@ workspaceApi.patch('/tasks/:id/status',async(req,res)=>{
   const result=await transaction(async c=>{
     const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR SHARE',[u.org_id])).rows);
     const task=found((await c.query('SELECT * FROM tasks WHERE id=$1 AND org_id=$2 FOR UPDATE',[id,u.org_id])).rows);
+    if(task.agent_id)await scopedAgent(c,u.org_id,task.agent_id,u.key_id);
     if(!transitions[task.status]?.includes(status))fail('Task cannot make that status transition.',409);
     if(status==='queued' && u.mode!=='session')fail('Only an operator can restart a halted task.',403);
     if(w.halted && !['failed','halted'].includes(status))fail('Workspace is stopped.',409);
@@ -111,25 +141,39 @@ workspaceApi.patch('/tasks/:id/status',async(req,res)=>{
     return updated;
   });res.json(result);
 });
-workspaceApi.post('/tasks/:id/spend',async(req,res)=>res.json(found(await query('UPDATE tasks SET spent_usd=spent_usd+$3 WHERE id=$1 AND org_id=$2 RETURNING *',[uuid(req.params.id),identity(res).org_id,amount(req.body.amountUsd)]))));
+workspaceApi.post('/tasks/:id/spend',async(req,res)=>{
+  const u=identity(res),id=uuid(req.params.id),amountUsd=amount(req.body.amountUsd) as number;
+  const task=await transaction(async c=>{
+    const task=found((await c.query('SELECT * FROM tasks WHERE id=$1 AND org_id=$2 FOR UPDATE',[id,u.org_id])).rows);
+    if(task.agent_id)await scopedAgent(c,u.org_id,task.agent_id,u.key_id);
+    if(!['claimed','in_progress'].includes(task.status))fail('Spend can only be reported for a claimed or in-progress task.',409);
+    const updated=(await c.query('UPDATE tasks SET spent_usd=spent_usd+$3 WHERE id=$1 AND org_id=$2 RETURNING *',[id,u.org_id,amountUsd])).rows[0];
+    await c.query("INSERT INTO task_logs(task_id,message,level) VALUES($1,$2,'info')",[id,`Reported spend: $${amountUsd.toFixed(2)}.`]);
+    return updated;
+  });
+  res.json(task);
+});
 workspaceApi.get('/tasks/:id/logs',async(req,res)=>{
   const id=uuid(req.params.id),org=identity(res).org_id;
   found(await query('SELECT id FROM tasks WHERE id=$1 AND org_id=$2',[id,org]));
   res.json(await query('SELECT * FROM (SELECT l.* FROM task_logs l JOIN tasks t ON t.id=l.task_id WHERE t.id=$1 AND t.org_id=$2 ORDER BY l.timestamp DESC,l.id DESC LIMIT 500) recent ORDER BY timestamp,id',[id,org]));
 });
 workspaceApi.post('/tasks/:id/logs',async(req,res)=>{
-  const id=uuid(req.params.id),org=identity(res).org_id,level=req.body.level||'info';
+  const u=identity(res),id=uuid(req.params.id),level=req.body.level||'info';
   if(!['info','warn','error','pause','stdout','success'].includes(level))fail('Invalid log level.');
-  res.status(201).json(found(await query('INSERT INTO task_logs(task_id,message,level) SELECT id,$3,$4 FROM tasks WHERE id=$1 AND org_id=$2 RETURNING *',[id,org,textField(req.body.message,'Message',16000),level])));
+  const task=found(await query('SELECT agent_id FROM tasks WHERE id=$1 AND org_id=$2',[id,u.org_id]));
+  if(task.agent_id)await scopedAgent(pool,u.org_id,task.agent_id,u.key_id);
+  res.status(201).json(found(await query('INSERT INTO task_logs(task_id,message,level) SELECT id,$3,$4 FROM tasks WHERE id=$1 AND org_id=$2 RETURNING *',[id,u.org_id,textField(req.body.message,'Message',16000),level])));
 });
 workspaceApi.get('/approvals',async(req,res)=>res.json(await query("SELECT a.*,t.title AS task_title,g.name AS agent_name FROM approval_requests a JOIN tasks t ON t.id=a.task_id JOIN agents g ON g.id=a.agent_id WHERE t.org_id=$1 AND a.status='pending' ORDER BY a.requested_at DESC LIMIT 200",[identity(res).org_id])));
 workspaceApi.get('/approvals/:id',async(req,res)=>res.json(found(await query('SELECT a.* FROM approval_requests a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1 AND t.org_id=$2',[uuid(req.params.id),identity(res).org_id]))));
 workspaceApi.post('/approvals',async(req,res)=>{
-  const org=identity(res).org_id,taskId=uuid(req.body.taskId),agentId=uuid(req.body.agentId),type=textField(req.body.type,'Action type',80);
+  const u=identity(res),org=u.org_id,taskId=uuid(req.body.taskId),agentId=uuid(req.body.agentId),type=textField(req.body.type,'Action type',80);
   const result=await transaction(async c=>{
     const w=found((await c.query('SELECT halted FROM workspaces WHERE id=$1 FOR SHARE',[org])).rows);if(w.halted)fail('Workspace is stopped.',409);
     const task=found((await c.query('SELECT * FROM tasks WHERE id=$1 AND org_id=$2 FOR UPDATE',[taskId,org])).rows);
     if(task.agent_id!==agentId||!['claimed','in_progress'].includes(task.status))fail('Claim and start the task before requesting approval.',409);
+    await scopedAgent(c,org,agentId,u.key_id);
     const a=(await c.query("INSERT INTO approval_requests(task_id,agent_id,type,amount_usd,context,status) VALUES($1,$2,$3,$4,$5,'pending') RETURNING *",[taskId,agentId,type,amount(req.body.amountUsd,true),JSON.stringify(object(req.body.context))])).rows[0];
     await c.query("UPDATE tasks SET status='paused' WHERE id=$1",[taskId]);
     await c.query("INSERT INTO task_logs(task_id,message,level) VALUES($1,$2,'pause')",[taskId,`Waiting for operator approval: ${type}`]);return a;
@@ -151,8 +195,13 @@ workspaceApi.post('/approvals/:id/decide',requireSession,async(req,res)=>{
   });res.json(result);
 });
 workspaceApi.post('/incidents',async(req,res)=>{
-  const org=identity(res).org_id;
-  for(const [field,table] of [['agentId','agents'],['taskId','tasks']])if(req.body[field])found(await query(`SELECT id FROM ${table} WHERE id=$1 AND org_id=$2`,[uuid(req.body[field]),org]));
+  const u=identity(res),org=u.org_id;
+  if(String(req.body.title||'').trim()===STOP_ACK_INCIDENT)fail('That incident title is reserved.',403);
+  if(req.body.agentId)await scopedAgent(pool,org,uuid(req.body.agentId),u.key_id);
+  if(req.body.taskId){
+    const task=found(await query('SELECT agent_id FROM tasks WHERE id=$1 AND org_id=$2',[uuid(req.body.taskId),org]));
+    if(task.agent_id)await scopedAgent(pool,org,task.agent_id,u.key_id);
+  }
   const severity=req.body.severity||'warning';if(!['info','warning','high','critical'].includes(severity))fail('Invalid severity.');
   const incident=found(await query('INSERT INTO incidents(org_id,agent_id,task_id,title,description,severity,evidence) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[org,req.body.agentId||null,req.body.taskId||null,textField(req.body.title,'Title',200),String(req.body.description||'').slice(0,5000),severity,JSON.stringify(object(req.body.evidence))]));
   void notify(org,{type:'incident_created',incidentId:incident.id});

@@ -93,7 +93,7 @@ The optional sample approval is explicitly marked as practice. It creates no ext
 - Only signed-in operators can approve/reject actions, manage keys/profile, resolve incidents, or stop/reopen/restart work. Agent keys cannot approve their own actions.
 - Signup/login have database-backed attempt limits. Responses use a restrictive CSP and do not cache private pages.
 
-For this MVP, each account owns one workspace. Team invitations, verified email, self-service password recovery, MFA, and per-agent resource permissions are not implemented. Agent keys currently grant agent access across their own workspace.
+For this MVP, each account owns one workspace. Team invitations, verified email, email-based self-service password recovery, MFA, key expiry/scopes, and operator roles are not implemented. An agent key is bound to the agents it registers, so it cannot act as another key's agent; agents created before this binding remain usable by any key in their workspace.
 
 ## Agent integration
 

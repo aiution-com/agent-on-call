@@ -43,6 +43,32 @@ try{
    const queued=await call('/tasks','POST',{title:'Review changes',budgetUsd:5});assert.equal(queued.status,201);task=queued.data;
    assert.equal((await call('/workspace')).data.progress.agent,true);
   });
+  await t.test("a workspace key cannot act as another key's agent",async()=>{
+   const otherKey=(await call('/keys','POST',{name:'Other integration'})).data;
+   const otherRequest=(path,method='GET',body)=>request('/api/v1'+path,{key:otherKey.token,origin:null,method,body});
+   const mine=(path,method='GET',body)=>request('/api/v1'+path,{key:key.token,origin:null,method,body});
+   const otherAgent=(await otherRequest('/agents','POST',{name:'Other worker',type:'test'})).data;
+   const claimTask=(await call('/tasks','POST',{title:'Claim scope check'})).data;
+   const spendTask=(await call('/tasks','POST',{title:'Spend scope check'})).data;
+   const ownedTask=(await call('/tasks','POST',{title:'Owned task'})).data;
+   assert.equal((await otherRequest(`/agents/${agent.id}/status`,'PATCH',{status:'busy'})).status,403);
+   assert.equal((await otherRequest(`/tasks/${claimTask.id}/claim`,'POST',{agentId:agent.id})).status,403);
+   await mine(`/tasks/${spendTask.id}/claim`,'POST',{agentId:agent.id});
+   assert.equal((await otherRequest(`/tasks/${spendTask.id}/spend`,'POST',{amountUsd:5})).status,403);
+   assert.equal((await mine(`/tasks/${spendTask.id}/spend`,'POST',{amountUsd:1})).status,200);
+   const unclaimed=(await call('/tasks','POST',{title:'Not claimed yet'})).data;
+   assert.equal((await mine(`/tasks/${unclaimed.id}/spend`,'POST',{amountUsd:1})).status,409);
+   await mine(`/tasks/${ownedTask.id}/claim`,'POST',{agentId:agent.id});
+   assert.equal((await otherRequest(`/tasks/${ownedTask.id}/logs`,'POST',{message:'forged'})).status,403);
+   assert.equal((await otherRequest('/approvals','POST',{taskId:ownedTask.id,agentId:agent.id,type:'forged',context:{}})).status,403);
+   assert.equal((await otherRequest('/incidents','POST',{agentId:agent.id,title:'Forged incident'})).status,403);
+   const {STOP_ACK_INCIDENT}=require('../dist/workspace-watchdog.js');
+   assert.equal((await call('/incidents','POST',{agentId:agent.id,title:STOP_ACK_INCIDENT})).status,403,'The stop-ack incident title is reserved');
+   assert.equal((await call('/emergency/stop','POST',{})).status,200);
+   assert.equal((await otherRequest(`/agents/${agent.id}/stop-ack`,'POST',{})).status,403);
+   assert.equal((await otherRequest(`/agents/${otherAgent.id}/stop-ack`,'POST',{})).status,200);
+   assert.equal((await call('/emergency/resume','POST',{})).status,200);
+  });
   await t.test('another user cannot list, read, mutate or reference our records',async()=>{
    const other=(path,method='GET',body)=>request('/api/v1'+path,{cookie:b.cookie,method,body});
    assert.deepEqual((await other('/agents')).data,[]);
@@ -118,6 +144,8 @@ try{
    assert.equal(await inspectStopAcknowledgments(a.profile.org_id),0);
    const open=(await call('/incidents')).data.filter(i=>i.agent_id===agent.id&&i.title===STOP_ACK_INCIDENT&&i.status==='open');
    assert.equal(open.length,1);
+   assert.equal((await call(`/incidents/${open[0].id}/resolve`,'POST',{})).status,200);
+   assert.equal(await inspectStopAcknowledgments(a.profile.org_id),0,'Resolving the incident must not re-trigger it for the same stop');
    assert.equal((await machine(`/agents/${agent.id}/stop-ack`,'POST',{})).status,200);
    assert.equal((await call('/incidents')).data.find(i=>i.id===open[0].id).status,'resolved');
    assert.equal((await call('/emergency/resume','POST',{})).status,200);
