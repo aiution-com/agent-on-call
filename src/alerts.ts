@@ -124,10 +124,11 @@ async function loadEvent(orgId: string, event: AlertEvent, workspaceName: string
   }
   const counts = (await query(
     `SELECT (SELECT count(*)::int FROM tasks WHERE org_id=$1 AND status='halted') AS halted_tasks,
-            (SELECT count(*)::int FROM agents WHERE org_id=$1 AND status='halted') AS halted_agents`,
+            (SELECT count(*)::int FROM agents WHERE org_id=$1 AND stop_requested_at IS NOT NULL AND COALESCE(capabilities->>'sample','false')<>'true') AS agents_notified,
+            (SELECT count(*)::int FROM agents WHERE org_id=$1 AND stop_requested_at IS NOT NULL AND stop_acknowledged_at IS NOT NULL AND COALESCE(capabilities->>'sample','false')<>'true') AS agents_acknowledged`,
     [orgId]
   ))[0];
-  const summary = { stopped_by: event.stoppedBy, halted_tasks: counts.halted_tasks, halted_agents: counts.halted_agents };
+  const summary = { stopped_by: event.stoppedBy, halted_tasks: counts.halted_tasks, agents_notified: counts.agents_notified, agents_acknowledged: counts.agents_acknowledged };
   return {
     event: 'workspace_halted',
     text: `Workspace stopped by ${event.stoppedBy}`,

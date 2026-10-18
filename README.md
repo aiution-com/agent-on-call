@@ -193,7 +193,7 @@ destination in the first place.
 
 ## Stop and monitoring semantics
 
-Stopping a workspace blocks new claims and marks active tasks halted. Reopening does not restart tasks automatically; operators restart them individually from Tasks. This is a cooperative stop signal, not remote process termination or reversal of an action already in flight.
+Stopping a workspace blocks new claims and marks active tasks halted. The stop is recorded as a **request**: the dashboard shows which active agents have acknowledged it (via `POST /api/v1/agents/:id/stop-ack`), which have not, and when. An agent that had active work but never checks in is escalated as an incident after two minutes. Reopening does not restart tasks automatically; operators restart them individually from Tasks. This is a cooperative stop signal, not remote process termination or reversal of an action already in flight — a worker in the middle of an external call may not acknowledge until it returns.
 
 The workspace watchdog checks active tasks every 20 seconds. Reported spend reaching a task's budget or an agent missing heartbeats for three minutes marks the task halted and creates an incident. It cannot prevent costs that are not reported or stop an external worker that ignores the signal.
 

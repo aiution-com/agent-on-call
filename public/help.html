@@ -162,8 +162,10 @@
       <p class="muted">
         <strong>Settings → Workspace controls → Stop workspace</strong> halts the whole workspace.
         New work cannot be claimed, active tasks are marked halted, and an incident is recorded.
-        Reopening is a separate, deliberate step — nothing resumes on its own, and each halted task
-        needs to be restarted individually.
+        The stop is first a request: workers with active tasks check in to acknowledge it, and the
+        dashboard shows who has and who has not. A worker that never checks in is raised as an
+        incident after two minutes. Reopening is a separate, deliberate step — nothing resumes on
+        its own, and each halted task needs to be restarted individually.
       </p>
     </div>
   </section>

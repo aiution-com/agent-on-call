@@ -56,7 +56,8 @@ try{
    assert.equal(decided.some(b=>b.type==='actions'),false);
    assert.match(JSON.stringify(decided),/Approved by Alice/);
    assert.match(JSON.stringify(buildIncidentBlocks({id:'x',title:'Budget limit reached',description:'Spend reached the limit.',severity:'high'},{name:'My workspace'})),/\*Budget limit reached\*/);
-   assert.match(JSON.stringify(buildHaltedBlocks({stopped_by:'Alice',halted_tasks:2,halted_agents:1},{name:'My workspace'})),/2 task\(s\) and 1 agent\(s\)/);
+   assert.match(JSON.stringify(buildHaltedBlocks({stopped_by:'Alice',halted_tasks:2,agents_notified:1,agents_acknowledged:0},{name:'My workspace'})),/2 task\(s\) halted/);
+   assert.match(JSON.stringify(buildHaltedBlocks({stopped_by:'Alice',halted_tasks:2,agents_notified:1,agents_acknowledged:0},{name:'My workspace'})),/0 of 1 acknowledged/);
    assert.match(JSON.stringify(buildTestBlocks({name:'My workspace'})),/Test alert/);
   });
   await t.test('importing the block builders loads no dependencies',async()=>{
@@ -296,6 +297,8 @@ try{
    const halted=JSON.parse(batches.find(b=>b.headers['X-AgentOnCall-Event']==='workspace_halted').body);
    assert.equal(halted.data.stopped_by,'Alert Judy');
    assert.equal(halted.data.halted_tasks,1);
+   assert.equal(halted.data.agents_notified,1);
+   assert.equal(halted.data.agents_acknowledged,0);
    assert.match(JSON.stringify(JSON.parse(batches.find(b=>b.headers['X-AgentOnCall-Event']==='incident_created').body).data.title),/EMERGENCY STOP/);
   });
   await t.test('a failing destination never changes the response of the request that triggered it',async()=>{

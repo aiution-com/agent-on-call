@@ -70,16 +70,57 @@ try{
    assert.equal((await machine(`/tasks/${task.id}/status`,'PATCH',{status:'done'})).status,200);
    assert.equal((await call(`/tasks/${task.id}/logs`)).data.length,3);
   });
-  await t.test('stop blocks new claims and requires explicit restart',async()=>{
+  await t.test('stop is a request until the worker acknowledges it',async()=>{
+   assert.equal((await call('/onboarding/sample','POST',{})).status,201);
    const r=await call('/tasks','POST',{title:'Second task'});const id=r.data.id;
    await machine(`/tasks/${id}/claim`,'POST',{agentId:agent.id});
-   assert.equal((await call('/emergency/stop','POST',{})).status,200);
+   const stopped=await call('/emergency/stop','POST',{});
+   assert.equal(stopped.status,200);
+   assert.ok(stopped.data.stopRequestedAt,'Stop response must carry the request time');
+   const status=(await call('/emergency/status')).data;
+   assert.equal(status.isHalted,true);
+   assert.equal(status.stopRequestedAt,stopped.data.stopRequestedAt);
    assert.equal((await machine(`/tasks/${id}`)).data.status,'halted');
+   // Recording the stop must not claim the worker has halted. Only the worker can say that.
+   let agentRow=(await call('/agents')).data.find(row=>row.id===agent.id);
+   assert.notEqual(agentRow.status,'halted');
+   assert.equal(agentRow.stop_acknowledged_at,null);
+   assert.ok(agentRow.stop_requested_at,'The agent with active work must be expected to acknowledge');
+   // The practice agent cannot check in, so it must never look unresponsive.
+   const sample=(await call('/agents')).data.find(row=>row.capabilities?.sample===true);
+   assert.ok(sample,'The practice agent must exist');
+   assert.equal(sample.stop_requested_at,null);
+   assert.equal((await call(`/agents/${agent.id}/stop-ack`,'POST',{})).status,403);
+   const ack=await machine(`/agents/${agent.id}/stop-ack`,'POST',{});
+   assert.equal(ack.status,200);
+   assert.ok(ack.data.stop_acknowledged_at);
+   assert.equal(ack.data.status,'halted');
+   agentRow=(await call('/agents')).data.find(row=>row.id===agent.id);
+   assert.equal(agentRow.stop_acknowledged_at,ack.data.stop_acknowledged_at);
+   // A second acknowledgment keeps the first timestamp.
+   assert.equal((await machine(`/agents/${agent.id}/stop-ack`,'POST',{})).data.stop_acknowledged_at,ack.data.stop_acknowledged_at);
    assert.equal((await machine(`/tasks/${id}/status`,'PATCH',{status:'queued'})).status,403);
    assert.equal((await call('/emergency/resume','POST',{})).status,200);
+   agentRow=(await call('/agents')).data.find(row=>row.id===agent.id);
+   assert.equal(agentRow.stop_acknowledged_at,null);
+   assert.equal(agentRow.stop_requested_at,null);
+   assert.equal(agentRow.status,'idle');
+   assert.equal((await machine(`/agents/${agent.id}/stop-ack`,'POST',{})).status,409);
    assert.equal((await machine(`/tasks/${id}`)).data.status,'halted');
    assert.equal((await call(`/tasks/${id}/status`,'PATCH',{status:'queued'})).status,200);
    assert.equal((await machine(`/tasks/${id}/claim`,'POST',{agentId:agent.id})).status,200);
+  });
+  await t.test('an agent that never acknowledges a stop is escalated once',async()=>{
+   assert.equal((await call('/emergency/stop','POST',{})).status,200);
+   await pool.query("UPDATE workspaces SET stop_requested_at=now()-interval '5 minutes' WHERE id=$1",[a.profile.org_id]);
+   const {inspectStopAcknowledgments,STOP_ACK_INCIDENT}=require('../dist/workspace-watchdog.js');
+   assert.equal(await inspectStopAcknowledgments(a.profile.org_id),1);
+   assert.equal(await inspectStopAcknowledgments(a.profile.org_id),0);
+   const open=(await call('/incidents')).data.filter(i=>i.agent_id===agent.id&&i.title===STOP_ACK_INCIDENT&&i.status==='open');
+   assert.equal(open.length,1);
+   assert.equal((await machine(`/agents/${agent.id}/stop-ack`,'POST',{})).status,200);
+   assert.equal((await call('/incidents')).data.find(i=>i.id===open[0].id).status,'resolved');
+   assert.equal((await call('/emergency/resume','POST',{})).status,200);
   });
   await t.test('sample creates one practice request and completes without external effects',async()=>{
    const r=await request('/api/v1/onboarding/sample',{cookie:b.cookie,method:'POST',body:{}});assert.equal(r.status,201);
@@ -112,6 +153,41 @@ try{
     assert.equal((await call('/tasks/'+pending.task_id)).data.status,'done');
     assert.match(output,/Completed/);
    }finally{if(child.exitCode===null)child.kill();}
+  });
+  await t.test('downloadable example treats a rejection as a failed task and an incident',async()=>{
+   const child=spawn(process.execPath,['public/assets/agent-example.mjs'],{env:{...process.env,AOC_API_URL:base,AOC_API_KEY:key.token},stdio:['ignore','pipe','pipe']});
+   let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
+   const exited=once(child,'exit');
+   try{
+    let pending;
+    for(let i=0;i<60;i++){pending=(await call('/approvals')).data.find(a=>a.type==='report_environment');if(pending)break;await new Promise(r=>setTimeout(r,100));}
+    assert.ok(pending,'Example must request approval');
+    await call(`/approvals/${pending.id}/decide`,'POST',{decision:'rejected'});
+    const [code]=await Promise.race([exited,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('Example timed out')),10000);timer.unref();})]);
+    assert.equal(code,1,output);
+    assert.match(output,/Operator rejected the action/);
+    assert.equal((await call('/tasks/'+pending.task_id)).data.status,'failed');
+    const incidents=(await call('/incidents')).data;
+    assert.ok(incidents.some(i=>i.task_id===pending.task_id&&i.title==='Action rejected by operator'),'Rejection must be recorded as an incident');
+   }finally{if(child.exitCode===null)child.kill();}
+  });
+  await t.test('downloadable example acknowledges a workspace stop before exiting',async()=>{
+   const child=spawn(process.execPath,['public/assets/agent-example.mjs'],{env:{...process.env,AOC_API_URL:base,AOC_API_KEY:key.token},stdio:['ignore','pipe','pipe']});
+   let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
+   const exited=once(child,'exit');
+   try{
+    let pending;
+    for(let i=0;i<60;i++){pending=(await call('/approvals')).data.find(a=>a.type==='report_environment');if(pending)break;await new Promise(r=>setTimeout(r,100));}
+    assert.ok(pending,'Example must request approval');
+    assert.equal((await call('/emergency/stop','POST',{})).status,200);
+    const [code]=await Promise.race([exited,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('Example did not stop after the workspace stop')),15000);timer.unref();})]);
+    assert.equal(code,1,output);
+    assert.match(output,/Task stopped/);
+    let agentRow;
+    for(let i=0;i<60;i++){agentRow=(await call('/agents')).data.find(row=>row.id===pending.agent_id);if(agentRow?.stop_acknowledged_at)break;await new Promise(r=>setTimeout(r,100));}
+    assert.ok(agentRow?.stop_acknowledged_at,'The example must acknowledge the stop');
+    assert.equal(agentRow.status,'halted');
+   }finally{if(child.exitCode===null)child.kill();await call('/emergency/resume','POST',{});}
   });
   await t.test('MCP connects over the scoped API without database credentials',async()=>{
    const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');
