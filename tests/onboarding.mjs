@@ -196,6 +196,31 @@ try{
    const transport=new StdioClientTransport({command:process.execPath,args:['dist/mcp/server.js'],env:{PATH:process.env.PATH,AOC_API_URL:base,AOC_API_KEY:key.token}});
    try{await client.connect(transport);const tools=await client.listTools();assert.equal(tools.tools.length,8);const result=await client.callTool({name:'register_agent',arguments:{name:'MCP test agent',type:'test'}});assert.ok(!result.isError);const record=JSON.parse(result.content[0].text);assert.equal(record.org_id,a.profile.org_id);}finally{await client.close();}
   });
+  await t.test('operators can change a password and recover an account from the host',async()=>{
+   const wrong=await request('/api/auth/password',{cookie:a.cookie,method:'POST',body:{currentPassword:'not-the-password',newPassword:'replacement-password-2026'}});
+   assert.equal(wrong.status,401);
+   assert.equal((await request('/api/auth/password',{cookie:a.cookie,method:'POST',body:{currentPassword:a.password,newPassword:'short'}})).status,400);
+   const second=await request('/api/auth/login',{method:'POST',body:{email:a.email,password:a.password}});
+   assert.equal(second.status,200);
+   assert.equal((await request('/api/v1/workspace',{cookie:second.cookie})).status,200);
+   const changed=await request('/api/auth/password',{cookie:a.cookie,method:'POST',body:{currentPassword:a.password,newPassword:'replacement-password-2026'}});
+   assert.equal(changed.status,200);
+   assert.equal((await request('/api/v1/workspace',{cookie:second.cookie})).status,401,'Other sessions must be signed out');
+   assert.equal((await request('/api/v1/workspace',{cookie:a.cookie})).status,200,'The session that changed the password must stay signed in');
+   assert.equal((await request('/api/auth/login',{method:'POST',body:{email:a.email,password:a.password}})).status,401);
+   a.password='replacement-password-2026';
+   assert.equal((await request('/api/auth/login',{method:'POST',body:{email:a.email,password:a.password}})).status,200);
+   const reset=spawn(process.execPath,['scripts/reset-password.mjs'],{env:{...process.env,AOC_EMAIL:a.email,AOC_NEW_PASSWORD:'host-recovered-password-2026'},stdio:['ignore','pipe','pipe']});
+   let resetOutput='';reset.stdout.on('data',b=>resetOutput+=b);reset.stderr.on('data',b=>resetOutput+=b);
+   const [resetCode]=await once(reset,'exit');
+   assert.equal(resetCode,0,resetOutput);
+   assert.equal((await request('/api/v1/workspace',{cookie:a.cookie})).status,401,'Host recovery must revoke existing sessions');
+   assert.equal((await request('/api/auth/login',{method:'POST',body:{email:a.email,password:a.password}})).status,401);
+   a.password='host-recovered-password-2026';
+   const recovered=await request('/api/auth/login',{method:'POST',body:{email:a.email,password:a.password}});
+   assert.equal(recovered.status,200);
+   a.cookie=recovered.cookie;
+  });
   await t.test('revoking key and logging out revoke access',async()=>{
    assert.equal((await call('/keys/'+key.id,'DELETE')).status,200);
    assert.equal((await machine('/tasks')).status,401);

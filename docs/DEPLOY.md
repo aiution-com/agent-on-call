@@ -234,9 +234,17 @@ backup first if the release contains a migration.
 
 Stated plainly so that nothing here is mistaken for a guarantee:
 
-- **No password reset.** There is no account recovery of any kind. A user who
-  forgets their password is permanently locked out. This is the single biggest
-  gap between this deployment and something you hand to a stranger.
+- **No self-service password reset.** There is no email, so a locked-out user
+  cannot recover an account on their own. A signed-in operator can change their
+  password in Settings. From the host, with the app's `DATABASE_URL`:
+
+  ```sh
+  AOC_EMAIL=user@example.com AOC_NEW_PASSWORD='at-least-12-characters' \
+    node scripts/reset-password.mjs
+  ```
+
+  This sets the password and signs out every session. Host access is therefore
+  equivalent to account takeover; protect it accordingly.
 - **No email.** No verification, no reset, no notifications by mail.
 - **Single instance.** The watchdog runs inside the app process. Two app
   containers means two watchdogs — correct, because the row locking in

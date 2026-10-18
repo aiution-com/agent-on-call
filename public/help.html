@@ -179,10 +179,11 @@
         <div class="instruction-body">
           <h3>I forgot my password. How do I reset it?</h3>
           <p>
-            You cannot, yet. There is no password reset and no email is sent from this product, so
-            there is no self-service way back into an account. If you are locked out, whoever runs
-            your AgentOnCall instance has to help you directly. We would rather say this plainly
-            than have you discover it at the sign-in screen.
+            There is no self-service reset and no email. If you are still signed in, use
+            Settings → Password; that signs out your other sessions. If you are locked out,
+            whoever runs your AgentOnCall instance can set a new password from the host with
+            <code>scripts/reset-password.mjs</code>, which also signs out every session. We would
+            rather say this plainly than have you discover it at the sign-in screen.
           </p>
         </div>
       </div>
@@ -258,7 +259,7 @@
     <div class="card-body">
       <p class="muted">So you are not surprised later:</p>
       <ul class="muted help-list">
-        <li>No password reset, and no email of any kind — no verification, no notifications by mail.</li>
+        <li>No self-service password reset, and no email of any kind — no verification, no notifications by mail. A signed-in operator can change their password, and a host operator can run the recovery script.</li>
         <li>One operator per workspace; no roles, no invitations.</li>
         <li>Enforcement is cooperative. An agent that ignores the API is not stopped by it.</li>
         <li>Alerts are best effort, with no retries and no delivery log.</li>
