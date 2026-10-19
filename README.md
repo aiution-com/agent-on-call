@@ -1,12 +1,118 @@
 # AgentOnCall
 
-A workspace for connecting agents, queueing work, reviewing human approvals, and following task activity.
+Your agent ran overnight and spent $400 on API calls. Or it deleted a table. Or it's been silently stuck for three hours and nobody noticed.
 
-AgentOnCall is a cooperative control plane. Connected agents must ask for approval and check task and workspace status before external actions. It cannot stop an agent that ignores the API or undo an action already taken. Task policies and permissions are stored for future use; the current API does not enforce them.
+AgentOnCall is the approval layer that stops that: agents ask before consequential actions, you approve in a dashboard, and every decision is logged.
 
-To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURITY.md](SECURITY.md).
+- [60-second demo](#60-second-demo)
+- [Quick start — under five minutes](#quick-start)
+- [What AgentOnCall does not do](#what-agentoncall-does-not-do)
+- [Running it in your own infrastructure](#running-it-in-your-own-infrastructure)
 
-Licensed under the [MIT License](LICENSE).
+## 60-second demo
+
+An agent asks for permission; you reject it; the task fails, the incident is
+logged, and the decision carries your name. No local Node install is required —
+the simulated agent runs inside the app container.
+
+If AgentOnCall is not running yet, [Quick start](#quick-start) takes about two
+minutes. Then:
+
+1. Create a profile at `http://127.0.0.1:3000/signup`.
+2. Open **Connect an agent**, create a key, and copy it.
+3. Run the simulated agent, pasting the key:
+
+   ```sh
+   docker compose exec -T -e AOC_API_URL=http://127.0.0.1:3000 -e AOC_API_KEY='aoc_...' app node public/assets/agent-example.mjs
+   ```
+
+   It connects, creates a task, and pauses on an approval request:
+
+   ```text
+   Connected. Open http://127.0.0.1:3000/dashboard#approvals and review the request.
+   ```
+
+4. Open **Approvals** and choose **Reject**.
+5. The agent sees the decision, reports an incident, and exits:
+
+   ```text
+   Operator rejected the action.
+   ```
+
+The task is now **failed** under **Tasks**. Its **Activity** shows the request,
+the pause, and the rejection with the deciding account. The incident appears in
+**Incidents**. Approve instead and the agent logs the result and completes the
+task.
+
+## Quick start
+
+You need Docker with the Compose plugin, and nothing else.
+
+```sh
+docker compose up -d --build
+```
+
+Wait until the app answers, then open `http://127.0.0.1:3000/signup`:
+
+```sh
+until curl -sf http://127.0.0.1:3000/health >/dev/null; do sleep 1; done
+```
+
+Create a profile (the password must be at least 12 characters) and you are in the
+dashboard. Compose starts PostgreSQL, waits for it to accept connections, applies
+migrations, and runs the app. The database is not published to the host; the app
+listens on loopback only.
+
+Click **Review a sample approval** in *Decisions awaiting you* to see the
+approve/reject loop immediately — it creates a practice agent and task, and runs
+nothing. The demo above does the same thing with a real agent over the API.
+
+If port 3000 is already taken, publish another one:
+
+```sh
+AGENTONCALL_PORT=3001 docker compose up -d --build
+```
+
+Then replace `3000` with `3001` in the commands above and below. Stop with
+`docker compose down` — add `-v` only if you also want to delete the database.
+
+The default database credentials are development values. Change them before
+making an instance reachable from a network. First-run problems are almost always
+visible in `docker compose ps` and `docker compose logs app`.
+
+## What AgentOnCall does not do
+
+Read this before trusting anything above. These are not roadmap footnotes; they
+define the product.
+
+- **It is cooperative.** An agent that ignores the API is not stopped. AgentOnCall
+  records requests and decisions; it does not intercept processes, network calls,
+  or shell commands, and it cannot undo an action already taken.
+- **There is no sandbox.** It does not run, isolate, or observe your agents' code.
+  It never executes agent commands.
+- **There is one operator and no roles.** Each account owns one workspace. There
+  are no team invitations, role-based permissions, MFA, or per-agent scopes; an
+  agent key grants access across its whole workspace.
+- **There is no email.** No verification, no notifications, and no self-service
+  password reset. A signed-in operator can change their password in Settings.
+  Whoever runs the host can recover a locked-out account with
+  `node scripts/reset-password.mjs` (see `docs/DEPLOY.md`).
+- **Policies are stored, not enforced.** Task policies and permission records
+  exist in the API and database for future use; the server does not evaluate them
+  when an agent acts.
+
+## Running it in your own infrastructure
+
+You need PostgreSQL and Node.js 20+, or only Docker — the compose file runs both.
+Outside Compose the app reads `DATABASE_URL`. Behind a TLS proxy, set `TRUST_PROXY`
+to match the topology or every mutating request fails its origin check. That is
+the whole requirement.
+What you do **not** get: high availability (run one instance; the watchdog lives
+in the process), TLS termination, scheduled backups (there is a dump/restore
+script and nothing that invokes it), metrics, or log aggregation. One container
+behind one proxy is the supported shape. [docs/DEPLOY.md](docs/DEPLOY.md) has a
+verified Caddy configuration, the `TRUST_PROXY` failure mode, backup and upgrade
+procedures, and the full list of what is missing.
 
 ## Screenshots
 
@@ -23,19 +129,6 @@ These screens show a fictional professional-services workspace. No real client d
 **Task activity** — progress, the approval pause, the operator decision, and completion.
 
 ![Task activity log showing document review, an approval pause, the operator decision, and completion](docs/images/task-activity.jpg)
-
-## Quick start
-
-With Docker installed:
-
-```sh
-docker compose up -d --build
-```
-
-Open `http://127.0.0.1:3000/signup`. Compose starts PostgreSQL, applies migrations,
-and runs the app. These are development credentials; change them before making
-an instance reachable from a network. See [docs/DEPLOY.md](docs/DEPLOY.md) for
-deployment and backup instructions.
 
 ## Run with an existing local PostgreSQL database
 
@@ -208,3 +301,9 @@ npm test
 ```
 
 Tests use the configured local database and an ephemeral HTTP port, create isolated test workspaces, and clean up their records. They cover authentication, CSRF, workspace isolation, operator-only decisions, revocation, sample onboarding, task transitions, stop/restart behavior, budget monitoring, the downloadable worker, and the MCP adapter. They make no Slack, webhook or email calls: alert deliveries are replaced with a recorder in the tests.
+
+## Contributing and license
+
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURITY.md](SECURITY.md).
+
+Licensed under the [MIT License](LICENSE).
