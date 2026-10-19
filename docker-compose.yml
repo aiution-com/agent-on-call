@@ -49,7 +49,11 @@ services:
       # Bound to the host's loopback, not to every interface. A reverse proxy on
       # this host is what terminates TLS and faces the internet; a half-open app
       # port with no TLS in front of it is not something to leave lying around.
-      - "127.0.0.1:3000:3000"
+      #
+      # AGENTONCALL_PORT changes the host side only, for a machine where 3000 is
+      # already taken: `AGENTONCALL_PORT=3001 docker compose up -d`. Everything
+      # inside the container still uses 3000.
+      - "127.0.0.1:${AGENTONCALL_PORT:-3000}:3000"
     networks: [internal, edge]
 
 volumes:
