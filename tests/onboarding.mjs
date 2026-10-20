@@ -179,6 +179,20 @@ try{
    assert.equal((await call('/tasks/'+waiting.id)).data.status,'halted');
    await pool.query("UPDATE agents SET status='idle',last_seen_at=now() WHERE id=$1",[agent.id]);
   });
+  await t.test('the live watchdog also selects workspaces whose only active task is paused',async()=>{
+   const parked=(await call('/tasks','POST',{title:'Parked task'})).data;
+   await machine(`/tasks/${parked.id}/claim`,'POST',{agentId:agent.id});
+   await machine(`/tasks/${parked.id}/status`,'PATCH',{status:'in_progress'});
+   assert.equal((await machine('/approvals','POST',{taskId:parked.id,agentId:agent.id,type:'parked_review',context:{action:'Park'}})).status,201);
+   assert.equal((await machine(`/tasks/${parked.id}`)).data.status,'paused');
+   await pool.query("UPDATE agents SET last_seen_at=now()-interval '5 minutes' WHERE id=$1",[agent.id]);
+   const {workspacesNeedingInspection,inspectWorkspace}=require('../dist/workspace-watchdog.js');
+   const selected=await workspacesNeedingInspection();
+   assert.ok(selected.includes(a.profile.org_id),'A worker that dies while awaiting approval leaves only a paused task; the live watchdog cycle must still inspect that workspace');
+   assert.equal(await inspectWorkspace(a.profile.org_id),1);
+   assert.equal((await call('/tasks/'+parked.id)).data.status,'halted');
+   await pool.query("UPDATE agents SET status='idle',last_seen_at=now() WHERE id=$1",[agent.id]);
+  });
   await t.test('downloadable example connects, waits for operator approval, and completes',async()=>{
    const child=spawn(process.execPath,['public/assets/agent-example.mjs'],{env:{...process.env,AOC_API_URL:base,AOC_API_KEY:key.token},stdio:['ignore','pipe','pipe']});
    let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);

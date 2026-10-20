@@ -55,14 +55,23 @@ export async function inspectWorkspace(orgId: string) {
   for(const incidentId of result.incidents)void notify(orgId,{type:'incident_created',incidentId});
   return result.count;
 }
+/**
+ * Workspaces the live watchdog cycle must inspect. 'paused' counts as active
+ * work: a worker that dies while awaiting approval leaves only a paused task,
+ * which is exactly when the operator most needs the stale-agent signal.
+ */
+export async function workspacesNeedingInspection(){
+  const rows=await query("SELECT DISTINCT w.id FROM workspaces w LEFT JOIN tasks t ON t.org_id=w.id WHERE w.halted OR t.status IN ('claimed','in_progress','paused')");
+  return rows.map((row:{id:string})=>row.id);
+}
 export function startWorkspaceWatchdog(){
   let running=false,cycles=0;
   const timer=setInterval(async()=>{
     if(running)return;
     running=true;
     try{
-      const orgs=await query("SELECT DISTINCT w.id FROM workspaces w LEFT JOIN tasks t ON t.org_id=w.id WHERE w.halted OR t.status IN ('claimed','in_progress')");
-      for(const org of orgs){await inspectStopAcknowledgments(org.id);await inspectWorkspace(org.id);}
+      const orgs=await workspacesNeedingInspection();
+      for(const orgId of orgs){await inspectStopAcknowledgments(orgId);await inspectWorkspace(orgId);}
       if(cycles++%180===0){await query('DELETE FROM sessions WHERE expires_at<now()');await query('DELETE FROM auth_limits WHERE expires_at<now()');}
     }catch(error){console.error('[workspace watchdog]',error instanceof Error?error.message:'Cycle failed');}
     finally{running=false;}
